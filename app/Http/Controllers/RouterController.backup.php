@@ -9,7 +9,6 @@ use App\Traits\HandlesMikrotikConnection;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Facades\Cache;
 
 class RouterController extends Controller
 {
@@ -19,7 +18,7 @@ class RouterController extends Controller
     public function __construct(MikrotikService $mikrotikService)
     {
         $this->middleware('auth');
-        $this->middleware('role:super_admin')->except(['getPingData']);
+        $this->middleware('role:super_admin');
         $this->mikrotikService = $mikrotikService;
     }
 
@@ -371,8 +370,6 @@ class RouterController extends Controller
             ]);
         }
     }
-
-    public function getRouterStatus(Router $router)
     {
         try {
             $statusInfo = $this->getRouterStatusInfo($router);
@@ -389,7 +386,6 @@ class RouterController extends Controller
                 'memory_usage' => 'N/A',
                 'memory_usage_percent' => 0,
                 'active_ppp_sessions' => 'N/A',
-                'ping_8888' => 'N/A',
                 'uptime' => 'N/A',
                 'error' => 'Status check failed'
             ]);
@@ -422,7 +418,6 @@ class RouterController extends Controller
                     'memory_usage' => 'N/A',
                     'memory_usage_percent' => 0,
                     'active_ppp_sessions' => 'N/A',
-                    'ping_8888' => 'N/A',
                     'uptime' => 'N/A',
                     'error' => 'Connection failed'
                 ];
@@ -445,7 +440,6 @@ class RouterController extends Controller
                     'memory_usage' => 'N/A',
                     'memory_usage_percent' => 0,
                     'active_ppp_sessions' => 'N/A',
-                    'ping_8888' => 'N/A',
                     'uptime' => 'N/A',
                     'error' => $statusResult['message']
                 ];
@@ -474,7 +468,6 @@ class RouterController extends Controller
                                 $this->mikrotikService->formatMemorySize($data['total_memory']),
                 'memory_usage_percent' => $data['memory_usage_percent'],
                 'active_ppp_sessions' => $data['active_ppp_sessions'],
-                'ping_8888' => $this->getPingToGoogle($router),
                 'uptime' => $data['uptime'],
                 'version' => $data['version'] ?? 'Unknown',
                 'board_name' => $data['board_name'] ?? 'Unknown'
@@ -492,100 +485,9 @@ class RouterController extends Controller
                 'memory_usage' => 'N/A',
                 'memory_usage_percent' => 0,
                 'active_ppp_sessions' => 'N/A',
-                'ping_8888' => 'N/A',
                 'uptime' => 'N/A',
                 'error' => 'Connection error'
             ];
-        }
-    }
-
-    /**
-     * Get ping response time to 8.8.8.8
-     */
-    private function getPingToGoogle(Router $router): string
-    {
-        try {
-            // First try to get from cache (background monitoring)
-            $cachedPing = Cache::get("router_ping_{$router->id}");
-            
-            if ($cachedPing && $cachedPing['status'] === 'success' && $cachedPing['ping_time'] !== null) {
-                return $cachedPing['ping_time'] . 'ms';
-            }
-
-            // Fallback to direct ping if cache is empty or failed
-            // Check if router is already connected, if not connect
-            if (!$this->mikrotikService || !$this->mikrotikService->isConnected()) {
-                $connected = $this->connectToMikrotik($router);
-                if (!$connected) {
-                    return 'N/A';
-                }
-            }
-
-            // Execute ping command to 8.8.8.8
-            $pingResult = $this->mikrotikService->ping('8.8.8.8', 1); // Single ping for speed
-            
-            if ($pingResult['success'] && isset($pingResult['data']['avg_time'])) {
-                return $pingResult['data']['avg_time'] . 'ms';
-            }
-            
-            return 'N/A';
-        } catch (\Exception $e) {
-            Log::error('Failed to ping 8.8.8.8 from router ' . $router->id, [
-                'error' => $e->getMessage()
-            ]);
-            return 'N/A';
-        }
-    }
-
-    /**
-     * Get real-time ping data for all active routers
-     */
-    public function getPingData()
-    {
-        try {
-            $activeRouters = Router::where('status', 'active')->get(['id', 'name']);
-            $pingData = [];
-
-            foreach ($activeRouters as $router) {
-                $cachedPing = Cache::get("router_ping_{$router->id}");
-                
-                if ($cachedPing) {
-                    $pingData[$router->id] = [
-                        'router_name' => $router->name,
-                        'ping_time' => $cachedPing['ping_time'],
-                        'status' => $cachedPing['status'],
-                        'error' => $cachedPing['error'] ?? null,
-                        'timestamp' => $cachedPing['timestamp'],
-                        'display' => $cachedPing['ping_time'] ? $cachedPing['ping_time'] . 'ms' : 'N/A'
-                    ];
-                } else {
-                    $pingData[$router->id] = [
-                        'router_name' => $router->name,
-                        'ping_time' => null,
-                        'status' => 'no_data',
-                        'error' => 'No ping data available',
-                        'timestamp' => now()->toISOString(),
-                        'display' => 'N/A'
-                    ];
-                }
-            }
-
-            return response()->json([
-                'success' => true,
-                'data' => $pingData,
-                'timestamp' => now()->toISOString()
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Failed to get ping data', [
-                'error' => $e->getMessage()
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to get ping data',
-                'error' => $e->getMessage()
-            ], 500);
         }
     }
 
@@ -621,6 +523,48 @@ class RouterController extends Controller
         }
         
         return view('routers.monitor', compact('router', 'systemInfo'));
+    }
+
+    /**
+     * Get router interfaces information
+     */
+    public function getInterfaces(Router $router)
+    {
+        $connected = $this->connectToMikrotik($router);
+
+        if (!$connected) {
+            return response()->json(['success' => false, 'message' => 'Failed to connect to router']);
+        }
+
+        try {
+            $client = $this->mikrotikService->getClient();
+            
+            // Get interfaces using Query class like in getSystemResource
+            $interfaceQuery = new \RouterOS\Query('/interface/print');
+            $interfaces = $client->query($interfaceQuery)->read();
+
+            // Get interface statistics - simplified version
+            $stats = [];
+            try {
+                $statsQuery = new \RouterOS\Query('/interface/monitor-traffic');
+                $statsQuery->where('interface', 'all');
+                $statsQuery->where('duration', '1');
+                $stats = $client->query($statsQuery)->read();
+            } catch (\Exception $e) {
+                Log::warning('Could not get interface stats: ' . $e->getMessage());
+                $stats = [];
+            }
+
+            return response()->json([
+                'success' => true,
+                'interfaces' => $interfaces,
+                'stats' => $stats
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting interfaces: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => $e->getMessage()]);
+        }
     }
 
     /**

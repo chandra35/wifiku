@@ -601,4 +601,125 @@ class MikrotikService
             return $bytes . ' B';
         }
     }
+
+    /**
+     * Check if client is connected
+     */
+    public function isConnected(): bool
+    {
+        return $this->client !== null;
+    }
+
+    /**
+     * Ping to specific host and return average response time
+     */
+    public function ping($host, $count = 3): array
+    {
+        try {
+            if (!$this->client) {
+                return [
+                    'success' => false,
+                    'message' => 'Not connected to router',
+                    'data' => null
+                ];
+            }
+
+            $query = new Query('/ping');
+            $query->equal('address', $host);
+            $query->equal('count', $count);
+            
+            $response = $this->client->query($query)->read();
+            
+            if (empty($response)) {
+                return [
+                    'success' => false,
+                    'message' => 'No response from ping',
+                    'data' => null
+                ];
+            }
+
+            $totalTime = 0;
+            $successCount = 0;
+            
+            foreach ($response as $result) {
+                if (isset($result['time']) && $result['time'] !== 'timeout') {
+                    // Parse RouterOS time format (e.g., "17ms454us" should be 17.454ms)
+                    $timeStr = $result['time'];
+                    $time = $this->parseRouterOSTime($timeStr);
+                    
+                    if ($time !== null) {
+                        $totalTime += $time;
+                        $successCount++;
+                    }
+                }
+            }
+
+            if ($successCount > 0) {
+                $avgTime = round($totalTime / $successCount, 1);
+                return [
+                    'success' => true,
+                    'message' => 'Ping successful',
+                    'data' => [
+                        'avg_time' => $avgTime,
+                        'host' => $host,
+                        'success_count' => $successCount,
+                        'total_count' => $count
+                    ]
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'message' => 'All ping attempts failed',
+                    'data' => null
+                ];
+            }
+            
+        } catch (\Exception $e) {
+            Log::error('Ping failed', [
+                'host' => $host,
+                'error' => $e->getMessage()
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => 'Ping error: ' . $e->getMessage(),
+                'data' => null
+            ];
+        }
+    }
+
+    /**
+     * Parse RouterOS time format to milliseconds
+     * Examples: "17ms454us" -> 17.454, "1s500ms" -> 1500, "100ms" -> 100
+     */
+    private function parseRouterOSTime($timeStr): ?float
+    {
+        if (empty($timeStr) || $timeStr === 'timeout') {
+            return null;
+        }
+
+        $totalMs = 0;
+        
+        // Parse seconds (s)
+        if (preg_match('/(\d+(?:\.\d+)?)s/', $timeStr, $matches)) {
+            $totalMs += floatval($matches[1]) * 1000;
+        }
+        
+        // Parse milliseconds (ms)
+        if (preg_match('/(\d+(?:\.\d+)?)ms/', $timeStr, $matches)) {
+            $totalMs += floatval($matches[1]);
+        }
+        
+        // Parse microseconds (us) - convert to milliseconds
+        if (preg_match('/(\d+(?:\.\d+)?)us/', $timeStr, $matches)) {
+            $totalMs += floatval($matches[1]) / 1000;
+        }
+        
+        // Parse nanoseconds (ns) - convert to milliseconds  
+        if (preg_match('/(\d+(?:\.\d+)?)ns/', $timeStr, $matches)) {
+            $totalMs += floatval($matches[1]) / 1000000;
+        }
+        
+        return $totalMs > 0 ? $totalMs : null;
+    }
 }

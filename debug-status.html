@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Router Status</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <h1>Debug Router Status</h1>
+    <div id="result"></div>
+    
+    <script>
+        $(document).ready(function() {
+            console.log('Testing router status endpoint...');
+            
+            $.get('http://localhost:8000/routers/32081c17-f32f-4c13-a453-af808718bac6/status')
+                .done(function(data) {
+                    console.log('Success:', data);
+                    $('#result').html('<pre>' + JSON.stringify(data, null, 2) + '</pre>');
+                })
+                .fail(function(xhr) {
+                    console.error('Failed:', xhr);
+                    $('#result').html('<pre>Error: ' + xhr.status + ' - ' + xhr.statusText + '</pre>');
+                });
+        });
+    </script>
+</body>
+</html>

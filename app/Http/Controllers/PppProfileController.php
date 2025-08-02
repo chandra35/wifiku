@@ -18,7 +18,7 @@ class PppProfileController extends Controller
     public function __construct(MikrotikService $mikrotikService)
     {
         $this->middleware('auth');
-        $this->middleware('role:super_admin');
+        $this->middleware('role:super_admin,admin');
         $this->mikrotikService = $mikrotikService;
     }
 

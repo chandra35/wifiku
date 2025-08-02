@@ -14,7 +14,17 @@ use App\Http\Controllers\ProfileController;
 Route::get('/test-monitor/{router}', function(App\Models\Router $router) {
     try {
         $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService());
-        $response = $controller->getSystemInfo($router);
+        $response = $controller->getBasicSystemInfo($router);
+        return $response;
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+    }
+});
+
+Route::get('/test-system/{router}', function(App\Models\Router $router) {
+    try {
+        $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService());
+        $response = $controller->getBasicSystemInfo($router);
         return $response;
     } catch (\Exception $e) {
         return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
@@ -49,6 +59,41 @@ Route::get('/debug-system-info/{router}', function(App\Models\Router $router) {
     }
 });
 
+// Debug route untuk getRouterStatusInfo tanpa auth
+Route::get('/debug-router-status/{router}', function(App\Models\Router $router) {
+    try {
+        $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService());
+        $response = $controller->getRouterStatusInfo($router);
+        return response()->json([
+            'method' => 'getRouterStatusInfo',
+            'data' => $response,
+            'router' => $router->name
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+    }
+});
+
+// Debug endpoint untuk test router status tanpa auth
+Route::get('/test-status/{router}', function(App\Models\Router $router) {
+    try {
+        $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService());
+        return $controller->getRouterStatus($router);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()]);
+    }
+});
+
+// Simple test endpoint
+Route::get('/test-ajax', function() {
+    return response()->json(['success' => true, 'message' => 'AJAX working', 'timestamp' => now()]);
+});
+
+// Test monitor page
+Route::get('/test-monitor/{router}', function(App\Models\Router $router) {
+    return view('test-monitor', compact('router'));
+});
+
 // Redirect /home to dashboard
 Route::get('/home', function () {
     return redirect()->route('dashboard');
@@ -65,20 +110,39 @@ Route::middleware(['auth', 'role:super_admin'])->group(function () {
     Route::resource('routers', RouterController::class);
     Route::post('/routers/test-connection', [RouterController::class, 'testConnection'])
         ->name('routers.test-connection');
+    
+    // Router Ping Monitoring
+    Route::get('/routers/ping-data', [RouterController::class, 'getPingData'])
+        ->name('routers.ping-data');
+    
+    // Debug ping
+    Route::get('/debug/ping-cache', function() {
+        $routers = App\Models\Router::where('status', 'active')->get();
+        $data = [];
+        foreach($routers as $router) {
+            $cached = Cache::get("router_ping_{$router->id}");
+            $data[$router->id] = [
+                'router' => $router->name,
+                'cache_key' => "router_ping_{$router->id}",
+                'cached_data' => $cached
+            ];
+        }
+        return response()->json($data);
+    });
+    
+    // Network Tools Routes
+    Route::get('/routers/{router}/network-tools', [RouterController::class, 'monitor'])
+        ->name('routers.monitor');
     Route::get('/routers/{router}/status', [RouterController::class, 'getRouterStatus'])
         ->name('routers.status');
-    Route::get('/routers/{router}/monitor', [RouterController::class, 'monitor'])
-        ->name('routers.monitor');
-    Route::get('/routers/{router}/monitor/interfaces', [RouterController::class, 'getInterfaces'])
-        ->name('routers.monitor.interfaces');
-    Route::get('/routers/{router}/monitor/ppp', [RouterController::class, 'getPppSessions'])
-        ->name('routers.monitor.ppp');
-    Route::get('/routers/{router}/monitor/ip-addresses', [RouterController::class, 'getIpAddresses'])
-        ->name('routers.monitor.ip-addresses');
-    Route::get('/routers/{router}/monitor/dhcp-leases', [RouterController::class, 'getDhcpLeases'])
-        ->name('routers.monitor.dhcp-leases');
-    Route::get('/routers/{router}/monitor/firewall', [RouterController::class, 'getFirewallRules'])
-        ->name('routers.monitor.firewall');
+    Route::post('/routers/{router}/ping', [RouterController::class, 'ping'])
+        ->name('routers.ping');
+    Route::post('/routers/{router}/traceroute', [RouterController::class, 'traceroute'])
+        ->name('routers.traceroute');
+    Route::post('/routers/{router}/dns-resolve', [RouterController::class, 'dnsResolve'])
+        ->name('routers.dns-resolve');
+    Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces'])
+        ->name('routers.interfaces');
     Route::get('/routers/{router}/monitor/system-info', [RouterController::class, 'getSystemInfo'])
         ->name('routers.monitor.system-info');
     Route::get('/routers/{router}/monitor/logs', [RouterController::class, 'getSystemLogs'])
