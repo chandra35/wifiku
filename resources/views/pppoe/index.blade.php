@@ -35,6 +35,54 @@
         </div>
     @endif
 
+    <!-- Statistics Cards -->
+    <div class="row">
+        <div class="col-lg-3 col-6">
+            <div class="small-box bg-info">
+                <div class="inner">
+                    <h3>{{ $pppoeSecrets->total() }}</h3>
+                    <p>Total PPPoE Secrets</p>
+                </div>
+                <div class="icon">
+                    <i class="fas fa-wifi"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-6">
+            <div class="small-box bg-success">
+                <div class="inner">
+                    <h3>{{ $pppoeSecrets->where('disabled', false)->count() }}</h3>
+                    <p>Active Secrets</p>
+                </div>
+                <div class="icon">
+                    <i class="fas fa-check"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-6">
+            <div class="small-box bg-warning">
+                <div class="inner">
+                    <h3>{{ $pppoeSecrets->where('disabled', true)->count() }}</h3>
+                    <p>Disabled Secrets</p>
+                </div>
+                <div class="icon">
+                    <i class="fas fa-pause"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-6">
+            <div class="small-box bg-danger">
+                <div class="inner">
+                    <h3>{{ $pppoeSecrets->where('created_at', '>=', now()->subDay())->count() }}</h3>
+                    <p>Created Today</p>
+                </div>
+                <div class="icon">
+                    <i class="fas fa-calendar-day"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-header">
             <h3 class="card-title">PPPoE Secrets List</h3>
@@ -161,54 +209,6 @@
                     </a>
                 </div>
             @endif
-        </div>
-    </div>
-
-    <!-- Statistics Cards -->
-    <div class="row">
-        <div class="col-lg-3 col-6">
-            <div class="small-box bg-info">
-                <div class="inner">
-                    <h3>{{ $pppoeSecrets->total() }}</h3>
-                    <p>Total PPPoE Secrets</p>
-                </div>
-                <div class="icon">
-                    <i class="fas fa-wifi"></i>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-3 col-6">
-            <div class="small-box bg-success">
-                <div class="inner">
-                    <h3>{{ $pppoeSecrets->where('disabled', false)->count() }}</h3>
-                    <p>Active Secrets</p>
-                </div>
-                <div class="icon">
-                    <i class="fas fa-check"></i>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-3 col-6">
-            <div class="small-box bg-warning">
-                <div class="inner">
-                    <h3>{{ $pppoeSecrets->where('disabled', true)->count() }}</h3>
-                    <p>Disabled Secrets</p>
-                </div>
-                <div class="icon">
-                    <i class="fas fa-pause"></i>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-3 col-6">
-            <div class="small-box bg-danger">
-                <div class="inner">
-                    <h3>{{ $pppoeSecrets->where('created_at', '>=', now()->subDay())->count() }}</h3>
-                    <p>Created Today</p>
-                </div>
-                <div class="icon">
-                    <i class="fas fa-calendar-day"></i>
-                </div>
-            </div>
         </div>
     </div>
 

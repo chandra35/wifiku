@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Cache;
+use RouterOS\Query;
 
 class RouterController extends Controller
 {
@@ -376,7 +377,10 @@ class RouterController extends Controller
     {
         try {
             $statusInfo = $this->getRouterStatusInfo($router);
+            
+            // Return the original format for compatibility with Router Management
             return response()->json($statusInfo);
+            
         } catch (\Exception $e) {
             Log::error('Router status endpoint error', [
                 'router_id' => $router->id,
@@ -391,7 +395,7 @@ class RouterController extends Controller
                 'active_ppp_sessions' => 'N/A',
                 'ping_8888' => 'N/A',
                 'uptime' => 'N/A',
-                'error' => 'Status check failed'
+                'error' => 'Status check failed: ' . $e->getMessage()
             ]);
         }
     }
@@ -961,5 +965,337 @@ class RouterController extends Controller
             Log::error('Error getting system logs: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * Get system information for router detail page
+     */
+    public function getSystemInfoApi(Router $router)
+    {
+        Log::info('Getting system info API for router: ' . $router->name);
+        
+        try {
+            $connected = $this->connectToMikrotik($router);
+            if (!$connected) {
+                return response()->json([
+                    'success' => false, 
+                    'message' => 'Cannot connect to router'
+                ]);
+            }
+
+            $client = $this->mikrotikService->getClient();
+            $systemInfo = [];
+            
+            // Get System Resource
+            try {
+                $resourceQuery = new \RouterOS\Query('/system/resource/print');
+                $resource = $client->query($resourceQuery)->read();
+                if (!empty($resource)) {
+                    $res = $resource[0];
+                    $systemInfo['version'] = $res['version'] ?? 'Unknown';
+                    $systemInfo['board_name'] = $res['board-name'] ?? 'Unknown';
+                    $systemInfo['architecture'] = $res['architecture-name'] ?? 'Unknown';
+                    $systemInfo['cpu'] = $res['cpu'] ?? 'Unknown';
+                    $systemInfo['cpu_load'] = $res['cpu-load'] ?? '0%';
+                    $systemInfo['uptime'] = $res['uptime'] ?? '0s';
+                    
+                    // Format memory information
+                    if (isset($res['total-memory'])) {
+                        $systemInfo['total_memory'] = $res['total-memory'];
+                        $systemInfo['total_memory_formatted'] = $this->formatBytes($res['total-memory']);
+                    }
+                    
+                    if (isset($res['free-memory'])) {
+                        $systemInfo['free_memory'] = $res['free-memory'];
+                        $systemInfo['free_memory_formatted'] = $this->formatBytes($res['free-memory']);
+                    }
+                    
+                    if (isset($res['total-memory']) && isset($res['free-memory'])) {
+                        $used = $res['total-memory'] - $res['free-memory'];
+                        $systemInfo['used_memory_formatted'] = $this->formatBytes($used);
+                        $systemInfo['memory_usage_percent'] = $this->calculateMemoryUsage($res['total-memory'], $res['free-memory']) . '%';
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::error('Error getting resource: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to get system resource information'
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $systemInfo
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting system info API: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Get router system identity
+     */
+    public function getSystemIdentity(Router $router)
+    {
+        try {
+            Log::info('Getting system identity', [
+                'router_id' => $router->id,
+                'router_name' => $router->name,
+                'router_ip' => $router->ip_address
+            ]);
+
+            // Use trait method for connection
+            $connected = $this->connectToMikrotik($router);
+            
+            if (!$connected) {
+                Log::warning('Failed to connect to router for system identity', [
+                    'router_id' => $router->id,
+                    'ip' => $router->ip_address
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to connect to router'
+                ]);
+            }
+
+            Log::info('Connected successfully, getting system identity');
+
+            // Get system identity
+            $identityResult = $this->mikrotikService->getSystemIdentity();
+            
+            if (!$identityResult['success']) {
+                Log::error('Failed to get system identity', [
+                    'router_id' => $router->id,
+                    'error' => $identityResult['message'] ?? 'Unknown error'
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => $identityResult['message'] ?? 'Failed to get system identity'
+                ]);
+            }
+
+            $systemData = $identityResult['data'];
+            
+            // Update router with system information if available
+            if (isset($systemData['version'])) {
+                $router->update([
+                    'routeros_version' => $systemData['version'],
+                    'architecture' => $systemData['architecture'] ?? null,
+                    'board_name' => $systemData['board_name'] ?? null,
+                    'last_system_check' => now(),
+                ]);
+                
+                Log::info('Router system info updated in database', [
+                    'router_id' => $router->id,
+                    'version' => $systemData['version']
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $systemData
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting system identity: ' . $e->getMessage(), [
+                'router_id' => $router->id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Get network traffic information
+     */
+    public function getNetworkTraffic(Router $router)
+    {
+        try {
+            Log::info('Getting network traffic', [
+                'router_id' => $router->id,
+                'router_name' => $router->name,
+                'router_ip' => $router->ip_address
+            ]);
+
+            // Use trait method for connection
+            $connected = $this->connectToMikrotik($router);
+            
+            if (!$connected) {
+                Log::warning('Failed to connect to router for network traffic', [
+                    'router_id' => $router->id,
+                    'ip' => $router->ip_address
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to connect to router'
+                ]);
+            }
+
+            Log::info('Connected successfully, getting network traffic');
+
+            // Get network traffic data
+            $trafficResult = $this->mikrotikService->getNetworkTraffic();
+            
+            if (!$trafficResult['success']) {
+                Log::error('Failed to get network traffic', [
+                    'router_id' => $router->id,
+                    'error' => $trafficResult['message'] ?? 'Unknown error'
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => $trafficResult['message'] ?? 'Failed to get network traffic'
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $trafficResult['data']
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting network traffic: ' . $e->getMessage(), [
+                'router_id' => $router->id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Get RouterOS version for compatibility check
+     */
+    public function getRouterOSVersion(Router $router)
+    {
+        // Check if we have cached version info (within last 24 hours)
+        if ($router->routeros_version && 
+            $router->last_system_check && 
+            $router->last_system_check->diffInHours(now()) < 24) {
+            return [
+                'version' => $router->routeros_version,
+                'architecture' => $router->architecture,
+                'board_name' => $router->board_name,
+                'major_version' => $this->extractMajorVersion($router->routeros_version)
+            ];
+        }
+
+        // Otherwise, fetch fresh data
+        try {
+            $api = $this->connectToRouter($router);
+            if (!$api) {
+                return null;
+            }
+
+            $query = new Query('/system/resource/print');
+            $response = $api->query($query)->read();
+
+            if (!empty($response)) {
+                $resource = $response[0];
+                $version = $resource['version'] ?? null;
+                $architecture = $resource['architecture-name'] ?? null;
+                $boardName = $resource['board-name'] ?? null;
+
+                // Update router record
+                $router->update([
+                    'routeros_version' => $version,
+                    'architecture' => $architecture,
+                    'board_name' => $boardName,
+                    'last_system_check' => now(),
+                ]);
+
+                return [
+                    'version' => $version,
+                    'architecture' => $architecture,
+                    'board_name' => $boardName,
+                    'major_version' => $this->extractMajorVersion($version)
+                ];
+            }
+        } catch (\Exception $e) {
+            Log::error('Error getting RouterOS version: ' . $e->getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * Get gateway interface traffic data
+     */
+    public function getGatewayTraffic(Router $router)
+    {
+        try {
+            Log::info('Getting gateway traffic', [
+                'router_id' => $router->id,
+                'router_name' => $router->name,
+                'router_ip' => $router->ip_address
+            ]);
+
+            // Use trait method for connection
+            $connected = $this->connectToMikrotik($router);
+            
+            if (!$connected) {
+                Log::warning('Failed to connect to router for gateway traffic', [
+                    'router_id' => $router->id,
+                    'ip' => $router->ip_address
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to connect to router'
+                ]);
+            }
+
+            Log::info('Connected successfully, getting gateway traffic');
+
+            // Get gateway traffic data
+            $trafficResult = $this->mikrotikService->getGatewayTraffic();
+            
+            if (!$trafficResult['success']) {
+                Log::error('Failed to get gateway traffic', [
+                    'router_id' => $router->id,
+                    'error' => $trafficResult['message'] ?? 'Unknown error'
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => $trafficResult['message'] ?? 'Failed to get gateway traffic'
+                ]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $trafficResult['data']
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting gateway traffic: ' . $e->getMessage(), [
+                'router_id' => $router->id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Extract major version number from RouterOS version string
+     */
+    private function extractMajorVersion($version)
+    {
+        if (!$version) return null;
+        
+        // Extract major version (e.g., "7.1.5" -> "7", "6.49.1" -> "6")
+        preg_match('/^(\d+)/', $version, $matches);
+        return isset($matches[1]) ? (int)$matches[1] : null;
     }
 }

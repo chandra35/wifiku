@@ -722,4 +722,369 @@ class MikrotikService
         
         return $totalMs > 0 ? $totalMs : null;
     }
+
+    /**
+     * Get system identity information
+     */
+    public function getSystemIdentity(): array
+    {
+        try {
+            if (!$this->client) {
+                return [
+                    'success' => false,
+                    'message' => 'Not connected to router',
+                    'data' => null
+                ];
+            }
+
+            Log::info('Getting system identity from MikroTik');
+
+            // Get system identity
+            $identityQuery = new Query('/system/identity/print');
+            $identityResponse = $this->client->query($identityQuery)->read();
+
+            if (empty($identityResponse)) {
+                Log::warning('No identity information available');
+                return [
+                    'success' => false,
+                    'message' => 'No identity information available',
+                    'data' => null
+                ];
+            }
+
+            $identity = $identityResponse[0];
+
+            // Get system resource information
+            $resourceQuery = new Query('/system/resource/print');
+            $resourceResponse = $this->client->query($resourceQuery)->read();
+
+            $systemData = [
+                'identity' => $identity['name'] ?? 'Unknown',
+                'board_name' => null,
+                'version' => null,
+                'uptime' => null,
+                'cpu_load' => null,
+                'architecture' => null,
+                'total_memory' => null,
+                'free_memory' => null
+            ];
+
+            if (!empty($resourceResponse)) {
+                $resource = $resourceResponse[0];
+                $systemData['board_name'] = $resource['board-name'] ?? null;
+                $systemData['version'] = $resource['version'] ?? null;
+                $systemData['uptime'] = $resource['uptime'] ?? null;
+                $systemData['cpu_load'] = $resource['cpu-load'] ?? null;
+                $systemData['architecture'] = $resource['architecture-name'] ?? null;
+                
+                if (isset($resource['total-memory'])) {
+                    $systemData['total_memory'] = $this->formatBytes($resource['total-memory']);
+                }
+                
+                if (isset($resource['free-memory'])) {
+                    $systemData['free_memory'] = $this->formatBytes($resource['free-memory']);
+                }
+            }
+
+            Log::info('System identity retrieved successfully', [
+                'identity' => $systemData['identity'],
+                'version' => $systemData['version']
+            ]);
+
+            return [
+                'success' => true,
+                'message' => 'System identity retrieved successfully',
+                'data' => $systemData
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Error getting system identity: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+                'data' => null
+            ];
+        }
+    }
+
+    /**
+     * Format bytes to human readable format
+     */
+    private function formatBytes($bytes): string
+    {
+        if ($bytes == 0) return '0 B';
+        
+        $k = 1024;
+        $sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $i = floor(log($bytes) / log($k));
+        
+        return round($bytes / pow($k, $i), 2) . ' ' . $sizes[$i];
+    }
+
+    /**
+     * Get network traffic information
+     */
+    public function getNetworkTraffic(): array
+    {
+        try {
+            if (!$this->client) {
+                return [
+                    'success' => false,
+                    'message' => 'Not connected to router',
+                    'data' => null
+                ];
+            }
+
+            Log::info('Getting network traffic from MikroTik');
+
+            // Get interface statistics
+            $interfaceQuery = new Query('/interface/print');
+            $interfaceQuery->where('disabled', 'false');
+            $interfaceResponse = $this->client->query($interfaceQuery)->read();
+
+            $interfaces = [];
+            $totalTxBytes = 0;
+            $totalRxBytes = 0;
+            $totalTxPackets = 0;
+            $totalRxPackets = 0;
+
+            foreach ($interfaceResponse as $interface) {
+                $interfaceData = [
+                    'name' => $interface['name'] ?? 'Unknown',
+                    'type' => $interface['type'] ?? 'Unknown',
+                    'running' => ($interface['running'] ?? 'false') === 'true',
+                    'tx_bytes' => isset($interface['tx-byte']) ? (int)$interface['tx-byte'] : 0,
+                    'rx_bytes' => isset($interface['rx-byte']) ? (int)$interface['rx-byte'] : 0,
+                    'tx_packets' => isset($interface['tx-packet']) ? (int)$interface['tx-packet'] : 0,
+                    'rx_packets' => isset($interface['rx-packet']) ? (int)$interface['rx-packet'] : 0,
+                    'tx_bytes_formatted' => isset($interface['tx-byte']) ? $this->formatBytes($interface['tx-byte']) : '0 B',
+                    'rx_bytes_formatted' => isset($interface['rx-byte']) ? $this->formatBytes($interface['rx-byte']) : '0 B'
+                ];
+
+                $interfaces[] = $interfaceData;
+                
+                if ($interfaceData['running']) {
+                    $totalTxBytes += $interfaceData['tx_bytes'];
+                    $totalRxBytes += $interfaceData['rx_bytes'];
+                    $totalTxPackets += $interfaceData['tx_packets'];
+                    $totalRxPackets += $interfaceData['rx_packets'];
+                }
+            }
+
+            // Get active connections
+            $connectionQuery = new Query('/ip/firewall/connection/print');
+            $connectionQuery->where('connection-state', 'established');
+            $connectionResponse = $this->client->query($connectionQuery)->read();
+            $activeConnections = count($connectionResponse);
+
+            // Get torch data for top interfaces (if available)
+            $topInterfaces = array_slice(
+                array_filter($interfaces, function($i) { return $i['running']; }),
+                0, 5
+            );
+
+            $trafficData = [
+                'total_tx_bytes' => $totalTxBytes,
+                'total_rx_bytes' => $totalRxBytes,
+                'total_tx_packets' => $totalTxPackets,
+                'total_rx_packets' => $totalRxPackets,
+                'total_tx_formatted' => $this->formatBytes($totalTxBytes),
+                'total_rx_formatted' => $this->formatBytes($totalRxBytes),
+                'total_traffic_formatted' => $this->formatBytes($totalTxBytes + $totalRxBytes),
+                'active_connections' => $activeConnections,
+                'interfaces' => $interfaces,
+                'top_interfaces' => $topInterfaces,
+                'interface_count' => count($interfaces),
+                'running_interface_count' => count(array_filter($interfaces, function($i) { return $i['running']; }))
+            ];
+
+            Log::info('Network traffic retrieved successfully', [
+                'interface_count' => $trafficData['interface_count'],
+                'total_traffic' => $trafficData['total_traffic_formatted']
+            ]);
+
+            return [
+                'success' => true,
+                'message' => 'Network traffic retrieved successfully',
+                'data' => $trafficData
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Error getting network traffic: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+                'data' => null
+            ];
+        }
+    }
+
+    /**
+     * Get gateway interface traffic information
+     */
+    public function getGatewayTraffic(): array
+    {
+        try {
+            if (!$this->client) {
+                return [
+                    'success' => false,
+                    'message' => 'Not connected to router',
+                    'data' => null
+                ];
+            }
+
+            Log::info('Getting gateway interface traffic from MikroTik');
+
+            // First, get the default route to find gateway interface
+            $routeQuery = new Query('/ip/route/print');
+            $routeQuery->where('dst-address', '0.0.0.0/0');
+            $routeQuery->where('active', 'true');
+            $routeResponse = $this->client->query($routeQuery)->read();
+
+            $gatewayInterface = null;
+            $gatewayAddress = null;
+
+            if (!empty($routeResponse)) {
+                foreach ($routeResponse as $route) {
+                    if (isset($route['gateway']) && $route['gateway'] !== '') {
+                        $gatewayAddress = $route['gateway'];
+                        // Get interface from route
+                        if (isset($route['gateway-status'])) {
+                            // Parse gateway-status to get interface name
+                            $gatewayStatus = $route['gateway-status'];
+                            if (preg_match('/reachable via (.+?)(?:\s|$)/', $gatewayStatus, $matches)) {
+                                $gatewayInterface = $matches[1];
+                                break;
+                            }
+                        }
+                        // Fallback: try to get interface directly
+                        if (!$gatewayInterface && isset($route['gateway-status'])) {
+                            $parts = explode(' ', $route['gateway-status']);
+                            if (count($parts) >= 3) {
+                                $gatewayInterface = $parts[2];
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If no interface found from route, try to find it from ARP or interface with gateway
+            if (!$gatewayInterface && $gatewayAddress) {
+                // Try to find interface by checking which interface can reach the gateway
+                $interfaceQuery = new Query('/interface/print');
+                $interfaceQuery->where('disabled', 'false');
+                $interfaceResponse = $this->client->query($interfaceQuery)->read();
+
+                foreach ($interfaceResponse as $interface) {
+                    if (isset($interface['name']) && $interface['running'] === 'true') {
+                        // Check if this interface has an IP in the same subnet as gateway
+                        try {
+                            $ipQuery = new Query('/ip/address/print');
+                            $ipQuery->where('interface', $interface['name']);
+                            $ipResponse = $this->client->query($ipQuery)->read();
+                            
+                            foreach ($ipResponse as $ip) {
+                                if (isset($ip['address'])) {
+                                    $network = explode('/', $ip['address'])[0];
+                                    $gatewayNetwork = explode('.', $gatewayAddress);
+                                    $interfaceNetwork = explode('.', $network);
+                                    
+                                    // Simple subnet check (first 3 octets)
+                                    if (count($gatewayNetwork) >= 3 && count($interfaceNetwork) >= 3) {
+                                        if ($gatewayNetwork[0] === $interfaceNetwork[0] && 
+                                            $gatewayNetwork[1] === $interfaceNetwork[1] && 
+                                            $gatewayNetwork[2] === $interfaceNetwork[2]) {
+                                            $gatewayInterface = $interface['name'];
+                                            break 2;
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (\Exception $e) {
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // If still no interface found, try to find WAN interface (common names)
+            if (!$gatewayInterface) {
+                $interfaceQuery = new Query('/interface/print');
+                $interfaceQuery->where('disabled', 'false');
+                $interfaceResponse = $this->client->query($interfaceQuery)->read();
+
+                $commonWanNames = ['ether1', 'wan', 'internet', 'ether1-gateway', 'pppoe-out1'];
+                foreach ($commonWanNames as $wanName) {
+                    foreach ($interfaceResponse as $interface) {
+                        if (isset($interface['name']) && 
+                            (strtolower($interface['name']) === $wanName || 
+                             strpos(strtolower($interface['name']), $wanName) !== false) &&
+                            $interface['running'] === 'true') {
+                            $gatewayInterface = $interface['name'];
+                            break 2;
+                        }
+                    }
+                }
+            }
+
+            if (!$gatewayInterface) {
+                return [
+                    'success' => false,
+                    'message' => 'Gateway interface not found',
+                    'data' => null
+                ];
+            }
+
+            // Get traffic data for the gateway interface
+            $interfaceQuery = new Query('/interface/print');
+            $interfaceQuery->where('name', $gatewayInterface);
+            $interfaceResponse = $this->client->query($interfaceQuery)->read();
+
+            if (empty($interfaceResponse)) {
+                return [
+                    'success' => false,
+                    'message' => 'Gateway interface data not found',
+                    'data' => null
+                ];
+            }
+
+            $interface = $interfaceResponse[0];
+            
+            $gatewayData = [
+                'interface_name' => $interface['name'] ?? 'Unknown',
+                'interface_type' => $interface['type'] ?? 'Unknown',
+                'running' => ($interface['running'] ?? 'false') === 'true',
+                'gateway_address' => $gatewayAddress,
+                'tx_bytes' => isset($interface['tx-byte']) ? (int)$interface['tx-byte'] : 0,
+                'rx_bytes' => isset($interface['rx-byte']) ? (int)$interface['rx-byte'] : 0,
+                'tx_packets' => isset($interface['tx-packet']) ? (int)$interface['tx-packet'] : 0,
+                'rx_packets' => isset($interface['rx-packet']) ? (int)$interface['rx-packet'] : 0,
+                'tx_bytes_formatted' => isset($interface['tx-byte']) ? $this->formatBytes($interface['tx-byte']) : '0 B',
+                'rx_bytes_formatted' => isset($interface['rx-byte']) ? $this->formatBytes($interface['rx-byte']) : '0 B',
+                'last_updated' => now()->toISOString()
+            ];
+
+            Log::info('Gateway traffic retrieved successfully', [
+                'interface' => $gatewayInterface,
+                'gateway' => $gatewayAddress,
+                'tx_bytes' => $gatewayData['tx_bytes_formatted'],
+                'rx_bytes' => $gatewayData['rx_bytes_formatted']
+            ]);
+
+            return [
+                'success' => true,
+                'message' => 'Gateway traffic retrieved successfully',
+                'data' => $gatewayData
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Error getting gateway traffic: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+                'data' => null
+            ];
+        }
+    }
 }

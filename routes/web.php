@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\RouterController;
@@ -25,6 +26,16 @@ Route::get('/test-system/{router}', function(App\Models\Router $router) {
     try {
         $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService());
         $response = $controller->getBasicSystemInfo($router);
+        return $response;
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+    }
+});
+
+Route::get('/debug-system-identity/{router}', function(App\Models\Router $router) {
+    try {
+        $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService());
+        $response = $controller->getSystemIdentity($router);
         return $response;
     } catch (\Exception $e) {
         return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
@@ -143,8 +154,14 @@ Route::middleware(['auth', 'role:super_admin'])->group(function () {
         ->name('routers.dns-resolve');
     Route::get('/routers/{router}/interfaces', [RouterController::class, 'getInterfaces'])
         ->name('routers.interfaces');
-    Route::get('/routers/{router}/monitor/system-info', [RouterController::class, 'getSystemInfo'])
+    Route::get('/routers/{router}/monitor/system-info', [RouterController::class, 'getSystemInfoApi'])
         ->name('routers.monitor.system-info');
+    Route::get('/routers/{router}/monitor/system-identity', [RouterController::class, 'getSystemIdentity'])
+        ->name('routers.monitor.system-identity');
+    Route::get('/routers/{router}/monitor/network-traffic', [RouterController::class, 'getNetworkTraffic'])
+        ->name('routers.monitor.network-traffic');
+    Route::get('/routers/{router}/monitor/gateway-traffic', [RouterController::class, 'getGatewayTraffic'])
+        ->name('routers.monitor.gateway-traffic');
     Route::get('/routers/{router}/monitor/logs', [RouterController::class, 'getSystemLogs'])
         ->name('routers.monitor.logs');
     

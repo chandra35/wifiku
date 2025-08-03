@@ -23,10 +23,18 @@ class Router extends Model
         'port',
         'status',
         'description',
+        'routeros_version',
+        'architecture',
+        'board_name',
+        'last_system_check',
     ];
 
     protected $hidden = [
         'password',
+    ];
+
+    protected $casts = [
+        'last_system_check' => 'datetime',
     ];
 
     protected static function boot()

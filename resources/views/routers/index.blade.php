@@ -193,9 +193,6 @@
                                         <a href="{{ route('routers.show', $router) }}" class="btn btn-info btn-sm" title="View">
                                             <i class="fas fa-eye"></i>
                                         </a>
-                                        <a href="{{ route('routers.monitor', $router) }}" class="btn btn-success btn-sm" title="Monitor">
-                                            <i class="fas fa-desktop"></i>
-                                        </a>
                                         <a href="{{ route('routers.edit', $router) }}" class="btn btn-warning btn-sm" title="Edit">
                                             <i class="fas fa-edit"></i>
                                         </a>
