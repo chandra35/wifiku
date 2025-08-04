@@ -372,12 +372,24 @@ return [
             ],
         ],
         
-        // Profile Settings (available for all authenticated users)
+        // Pengaturan (available for all authenticated users)
         [
             'text' => 'Pengaturan',
-            'route' => 'profile.edit',
-            'icon' => 'fas fa-fw fa-user-cog',
-            'active' => ['profile*'],
+            'icon' => 'fas fa-fw fa-cogs',
+            'submenu' => [
+                [
+                    'text' => 'Profile',
+                    'route' => 'profile.edit',
+                    'icon' => 'fas fa-fw fa-user-cog',
+                    'active' => ['profile*'],
+                ],
+                [
+                    'text' => 'Covered Areas',
+                    'route' => 'covered-areas.index',
+                    'icon' => 'fas fa-fw fa-map-marked-alt',
+                    'active' => ['covered-areas*'],
+                ],
+            ],
         ],
     ],
 

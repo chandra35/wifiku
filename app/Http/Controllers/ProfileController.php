@@ -49,6 +49,11 @@ class ProfileController extends Controller
                 'company_name' => $request->company_name,
                 'company_address' => $request->company_address,
                 'company_phone' => $request->company_phone,
+                'province_id' => $request->province_id,
+                'city_id' => $request->city_id,
+                'district_id' => $request->district_id,
+                'village_id' => $request->village_id,
+                'full_address' => $request->full_address,
             ];
 
             // Handle PIC photo upload

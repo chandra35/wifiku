@@ -176,6 +176,50 @@
                 @endif
             </div>
         </div>
+        
+        <!-- Area Information -->
+        <div class="card card-success">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <i class="fas fa-map-marker-alt mr-1"></i> Area Information
+                </h3>
+            </div>
+            <div class="card-body">
+                @if($user->hasCompleteAreaInfo())
+                    <div class="mb-2">
+                        <small class="text-muted d-block">Province:</small>
+                        <strong>{{ $user->province->name ?? 'Not set' }}</strong>
+                    </div>
+                    <div class="mb-2">
+                        <small class="text-muted d-block">City/Regency:</small>
+                        <strong>{{ $user->city->name ?? 'Not set' }}</strong>
+                    </div>
+                    <div class="mb-2">
+                        <small class="text-muted d-block">District:</small>
+                        <strong>{{ $user->district->name ?? 'Not set' }}</strong>
+                    </div>
+                    <div class="mb-2">
+                        <small class="text-muted d-block">Village:</small>
+                        <strong>{{ $user->village->name ?? 'Not set' }}</strong>
+                    </div>
+                    @if($user->full_address)
+                    <hr>
+                    <div class="mb-0">
+                        <small class="text-muted d-block">Complete Address:</small>
+                        <small>{{ $user->full_address }}</small>
+                    </div>
+                    @endif
+                @else
+                    <div class="text-center text-muted">
+                        <i class="fas fa-info-circle mb-2" style="font-size: 2rem;"></i>
+                        <p class="mb-2">Area information not set</p>
+                        <a href="#address" onclick="$('#address-tab').click();" class="btn btn-sm btn-success">
+                            <i class="fas fa-plus mr-1"></i> Add Area Info
+                        </a>
+                    </div>
+                @endif
+            </div>
+        </div>
     </div>
 
     <!-- Right col (Main Content) -->
@@ -186,6 +230,11 @@
                     <li class="nav-item">
                         <a class="nav-link active" id="personal-tab" data-toggle="pill" href="#personal" role="tab" aria-controls="personal" aria-selected="true">
                             <i class="fas fa-user mr-2"></i>Personal Information
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="address-tab" data-toggle="pill" href="#address" role="tab" aria-controls="address" aria-selected="false">
+                            <i class="fas fa-map-marker-alt mr-2"></i>Address & Area
                         </a>
                     </li>
                     <li class="nav-item">
@@ -287,6 +336,125 @@
                             <div class="form-group">
                                 <button type="submit" class="btn btn-primary">
                                     <i class="fas fa-save mr-2"></i>Update Personal Information
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <!-- Address & Area Tab -->
+                    <div class="tab-pane fade" id="address" role="tabpanel" aria-labelledby="address-tab">
+                        <form action="{{ route('profile.update') }}" method="POST">
+                            @csrf
+                            @method('PUT')
+                            
+                            <div class="alert alert-info">
+                                <i class="fas fa-map-marker-alt mr-2"></i>
+                                <strong>Area Information:</strong> Please select your location details. This information helps us provide better service and support.
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="province_id">
+                                            <i class="fas fa-map mr-1"></i>Province <span class="text-muted">(Provinsi)</span>
+                                        </label>
+                                        <select name="province_id" id="province_id" class="form-control" style="width: 100%;">
+                                            <option value="">Select Province</option>
+                                        </select>
+                                        <div class="loading-spinner d-none" id="province-loading">
+                                            <small class="text-muted"><i class="fas fa-spinner fa-spin mr-1"></i> Loading provinces...</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="city_id">
+                                            <i class="fas fa-city mr-1"></i>City/Regency <span class="text-muted">(Kota/Kabupaten)</span>
+                                        </label>
+                                        <select name="city_id" id="city_id" class="form-control" style="width: 100%;" disabled>
+                                            <option value="">Select City/Regency</option>
+                                        </select>
+                                        <div class="loading-spinner d-none" id="city-loading">
+                                            <small class="text-muted"><i class="fas fa-spinner fa-spin mr-1"></i> Loading cities...</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <div class="form-group">
+                                        <label for="district_id">
+                                            <i class="fas fa-building mr-1"></i>District <span class="text-muted">(Kecamatan)</span>
+                                        </label>
+                                        <select name="district_id" id="district_id" class="form-control" style="width: 100%;" disabled>
+                                            <option value="">Select District</option>
+                                        </select>
+                                        <div class="loading-spinner d-none" id="district-loading">
+                                            <small class="text-muted"><i class="fas fa-spinner fa-spin mr-1"></i> Loading districts...</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="village_id">
+                                            <i class="fas fa-home mr-1"></i>Village <span class="text-muted">(Kelurahan/Desa)</span>
+                                        </label>
+                                        <select name="village_id" id="village_id" class="form-control" style="width: 100%;" disabled>
+                                            <option value="">Select Village</option>
+                                        </select>
+                                        <div class="loading-spinner d-none" id="village-loading">
+                                            <small class="text-muted"><i class="fas fa-spinner fa-spin mr-1"></i> Loading villages...</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="full_address">
+                                    <i class="fas fa-address-card mr-1"></i>Complete Address <span class="text-muted">(Alamat Lengkap)</span>
+                                </label>
+                                <textarea name="full_address" 
+                                          id="full_address" 
+                                          rows="4" 
+                                          class="form-control @error('full_address') is-invalid @enderror" 
+                                          placeholder="Enter your detailed address (street name, house number, RT/RW, etc.)">{{ old('full_address', $user->full_address) }}</textarea>
+                                <small class="form-text text-muted">
+                                    <i class="fas fa-info-circle"></i>
+                                    Enter your detailed address. The regional information (Province, City, District, Village) will be automatically added.
+                                </small>
+                                @error('full_address')
+                                    <span class="invalid-feedback">{{ $message }}</span>
+                                @enderror
+                            </div>
+                            
+                            <!-- Address Preview Card -->
+                            <div class="card card-outline card-info">
+                                <div class="card-header">
+                                    <h3 class="card-title">
+                                        <i class="fas fa-eye mr-2"></i>Address Preview
+                                    </h3>
+                                </div>
+                                <div class="card-body">
+                                    <div id="address-preview" class="text-muted">
+                                        @if($user->hasCompleteAreaInfo())
+                                            <div class="mb-2">
+                                                <strong>Current Address:</strong><br>
+                                                {{ $user->getCompleteAddress() }}
+                                            </div>
+                                        @else
+                                            <i class="fas fa-info-circle mr-2"></i>Your complete address will appear here as you fill in the fields above.
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Hidden fields for other data -->
+                            <input type="hidden" name="name" value="{{ $user->name }}">
+                            <input type="hidden" name="email" value="{{ $user->email }}">
+                            <input type="hidden" name="company_name" value="{{ $user->company_name }}">
+                            <input type="hidden" name="company_address" value="{{ $user->company_address }}">
+                            <input type="hidden" name="company_phone" value="{{ $user->company_phone }}">
+                            
+                            <div class="form-group">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save mr-2"></i>Update Address Information
                                 </button>
                             </div>
                         </form>
@@ -605,6 +773,94 @@
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
     text-align: center;
 }
+
+/* Area Form Styling */
+#address .form-group select {
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: #495057;
+    background-color: #fff;
+    background-image: none;
+    min-height: 38px;
+}
+
+#address .form-group select:focus {
+    border-color: #80bdff;
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+#address .form-group select:disabled {
+    background-color: #e9ecef;
+    opacity: 1;
+    cursor: not-allowed;
+}
+
+#address .loading-spinner {
+    position: static;
+    background: none;
+    padding: 5px 0;
+    margin-top: 5px;
+}
+
+#address .loading-spinner small {
+    color: #6c757d;
+    font-size: 0.75rem;
+}
+
+/* Address Preview Card */
+#address-preview {
+    min-height: 50px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 0.25rem;
+    border: 1px solid #dee2e6;
+}
+
+/* Form Label Styling */
+#address .form-group label {
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 0.5rem;
+}
+
+#address .form-group label .text-muted {
+    font-weight: 400;
+    font-size: 0.875rem;
+}
+
+/* Tab content padding */
+.tab-content {
+    padding-top: 1rem;
+}
+
+#address-preview {
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    padding: 15px;
+    min-height: 60px;
+}
+
+.loading-spinner.d-none {
+    display: none !important;
+}
+
+.form-group .loading-spinner {
+    position: relative;
+    background: transparent;
+    font-size: 14px;
+    color: #6c757d;
+    margin-top: 5px;
+    padding: 5px 0;
+}
+
+.clickable-photo:hover {
+    opacity: 0.8;
+    transition: opacity 0.3s ease;
+}
 </style>
 @stop
 
@@ -774,5 +1030,216 @@ function deleteIspLogo() {
         });
     }
 }
+
+// Area/Regional Dropdowns Functionality
+$(document).ready(function() {
+    // Load provinces on page load
+    loadProvinces();
+    
+    // Load existing area data if available
+    var currentProvinceId = '{{ $user->province_id }}';
+    var currentCityId = '{{ $user->city_id }}';
+    var currentDistrictId = '{{ $user->district_id }}';
+    var currentVillageId = '{{ $user->village_id }}';
+    
+    // Province change event
+    $('#province_id').on('change', function() {
+        var provinceId = $(this).val();
+        $('#city_id').empty().append('<option value="">Select City/Regency</option>').prop('disabled', true);
+        $('#district_id').empty().append('<option value="">Select District</option>').prop('disabled', true);
+        $('#village_id').empty().append('<option value="">Select Village</option>').prop('disabled', true);
+        
+        if (provinceId) {
+            loadCities(provinceId);
+        }
+        updateAddressPreview();
+    });
+    
+    // City change event
+    $('#city_id').on('change', function() {
+        var cityId = $(this).val();
+        $('#district_id').empty().append('<option value="">Select District</option>').prop('disabled', true);
+        $('#village_id').empty().append('<option value="">Select Village</option>').prop('disabled', true);
+        
+        if (cityId) {
+            loadDistricts(cityId);
+        }
+        updateAddressPreview();
+    });
+    
+    // District change event
+    $('#district_id').on('change', function() {
+        var districtId = $(this).val();
+        $('#village_id').empty().append('<option value="">Select Village</option>').prop('disabled', true);
+        
+        if (districtId) {
+            loadVillages(districtId);
+        }
+        updateAddressPreview();
+    });
+    
+    // Village change event
+    $('#village_id').on('change', function() {
+        updateAddressPreview();
+    });
+    
+    // Full address change event
+    $('#full_address').on('input', function() {
+        updateAddressPreview();
+    });
+    
+    // Load provinces
+    function loadProvinces() {
+        $('#province-loading').removeClass('d-none');
+        
+        $.ajax({
+            url: '{{ url("/api/covered-areas/provinces") }}',
+            type: 'GET',
+            success: function(response) {
+                $('#province_id').empty().append('<option value="">Select Province</option>');
+                
+                $.each(response, function(index, province) {
+                    var selected = province.id == currentProvinceId ? 'selected' : '';
+                    $('#province_id').append('<option value="' + province.id + '" ' + selected + '>' + province.name + '</option>');
+                });
+                
+                $('#province-loading').addClass('d-none');
+                
+                // Load cities if province is pre-selected
+                if (currentProvinceId) {
+                    loadCities(currentProvinceId);
+                }
+            },
+            error: function() {
+                $('#province-loading').addClass('d-none');
+                console.error('Error loading provinces');
+            }
+        });
+    }
+    
+    // Load cities based on province
+    function loadCities(provinceId) {
+        $('#city-loading').removeClass('d-none');
+        
+        $.ajax({
+            url: '{{ url("/api/covered-areas/provinces") }}/' + provinceId + '/cities',
+            type: 'GET',
+            success: function(response) {
+                $('#city_id').empty().append('<option value="">Select City/Regency</option>').prop('disabled', false);
+                
+                $.each(response, function(index, city) {
+                    var selected = city.id == currentCityId ? 'selected' : '';
+                    $('#city_id').append('<option value="' + city.id + '" ' + selected + '>' + city.name + '</option>');
+                });
+                
+                $('#city-loading').addClass('d-none');
+                
+                // Load districts if city is pre-selected
+                if (currentCityId) {
+                    loadDistricts(currentCityId);
+                }
+            },
+            error: function() {
+                $('#city-loading').addClass('d-none');
+                console.error('Error loading cities');
+            }
+        });
+    }
+    
+    // Load districts based on city
+    function loadDistricts(cityId) {
+        $('#district-loading').removeClass('d-none');
+        
+        $.ajax({
+            url: '{{ url("/api/covered-areas/cities") }}/' + cityId + '/districts',
+            type: 'GET',
+            success: function(response) {
+                $('#district_id').empty().append('<option value="">Select District</option>').prop('disabled', false);
+                
+                $.each(response, function(index, district) {
+                    var selected = district.id == currentDistrictId ? 'selected' : '';
+                    $('#district_id').append('<option value="' + district.id + '" ' + selected + '>' + district.name + '</option>');
+                });
+                
+                $('#district-loading').addClass('d-none');
+                
+                // Load villages if district is pre-selected
+                if (currentDistrictId) {
+                    loadVillages(currentDistrictId);
+                }
+            },
+            error: function() {
+                $('#district-loading').addClass('d-none');
+                console.error('Error loading districts');
+            }
+        });
+    }
+    
+    // Load villages based on district
+    function loadVillages(districtId) {
+        $('#village-loading').removeClass('d-none');
+        
+        $.ajax({
+            url: '{{ url("/api/covered-areas/districts") }}/' + districtId + '/villages',
+            type: 'GET',
+            success: function(response) {
+                $('#village_id').empty().append('<option value="">Select Village</option>').prop('disabled', false);
+                
+                $.each(response, function(index, village) {
+                    var selected = village.id == currentVillageId ? 'selected' : '';
+                    $('#village_id').append('<option value="' + village.id + '" ' + selected + '>' + village.name + '</option>');
+                });
+                
+                $('#village-loading').addClass('d-none');
+            },
+            error: function() {
+                $('#village-loading').addClass('d-none');
+                console.error('Error loading villages');
+            }
+        });
+    }
+    
+    // Update address preview
+    function updateAddressPreview() {
+        var fullAddress = $('#full_address').val();
+        var provinceName = $('#province_id option:selected').text();
+        var cityName = $('#city_id option:selected').text();
+        var districtName = $('#district_id option:selected').text();
+        var villageName = $('#village_id option:selected').text();
+        
+        var addressParts = [];
+        
+        if (fullAddress && fullAddress.trim() !== '') {
+            addressParts.push(fullAddress.trim());
+        }
+        
+        if (villageName && villageName !== 'Select Village') {
+            addressParts.push(villageName);
+        }
+        
+        if (districtName && districtName !== 'Select District') {
+            addressParts.push(districtName);
+        }
+        
+        if (cityName && cityName !== 'Select City/Regency') {
+            addressParts.push(cityName);
+        }
+        
+        if (provinceName && provinceName !== 'Select Province') {
+            addressParts.push(provinceName);
+        }
+        
+        if (addressParts.length > 0) {
+            $('#address-preview').html('<div class="mb-2"><strong>Complete Address:</strong><br>' + addressParts.join(', ') + '</div>');
+        } else {
+            $('#address-preview').html('<i class="fas fa-info-circle mr-2"></i>Your complete address will appear here as you fill in the fields above.');
+        }
+    }
+    
+    // Initial address preview update
+    setTimeout(function() {
+        updateAddressPreview();
+    }, 1000);
+});
 </script>
 @stop

@@ -10,6 +10,8 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\PppoeController;
 use App\Http\Controllers\PppProfileController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\AreaController;
+use App\Http\Controllers\CoveredAreaController;
 
 // Debug route tanpa middleware authentication (di luar semua middleware)
 Route::get('/test-monitor/{router}', function(App\Models\Router $router) {
@@ -393,6 +395,19 @@ Route::middleware(['auth', 'role:super_admin,admin'])->group(function () {
     Route::post('/ppp-profiles/import-selected', [PppProfileController::class, 'importSelected'])
         ->name('ppp-profiles.import-selected');
     
+    // Covered Areas Management - untuk Admin/POP mengelola area coverage
+    Route::resource('covered-areas', CoveredAreaController::class);
+    Route::post('/covered-areas/{coveredArea}/toggle-status', [CoveredAreaController::class, 'toggleStatus'])
+        ->name('covered-areas.toggle-status');
+    Route::get('/api/covered-areas/provinces', [CoveredAreaController::class, 'getProvinces'])
+        ->name('api.areas.provinces');
+    Route::get('/api/covered-areas/provinces/{provinceId}/cities', [CoveredAreaController::class, 'getCities'])
+        ->name('api.covered-areas.cities');
+    Route::get('/api/covered-areas/cities/{cityId}/districts', [CoveredAreaController::class, 'getDistricts'])
+        ->name('api.covered-areas.districts');
+    Route::get('/api/covered-areas/districts/{districtId}/villages', [CoveredAreaController::class, 'getVillages'])
+        ->name('api.covered-areas.villages');
+    
     // Profile Settings (available for all authenticated users)
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::put('/profile', [ProfileController::class, 'updateProfile'])->name('profile.update');
@@ -402,12 +417,4 @@ Route::middleware(['auth', 'role:super_admin,admin'])->group(function () {
 });
 
 // Test company info for invoice development
-Route::get('/test-company-info', function() {
-    $user = Auth::user();
-    if (!$user) {
-        return response()->json(['error' => 'User not authenticated']);
-    }
-    return response()->json($user->getCompanyInfo());
-});
-
 // Profile Settings routes are included in the authenticated group above

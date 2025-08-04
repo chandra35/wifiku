@@ -35,6 +35,11 @@ class User extends Authenticatable
         'company_name',
         'company_address',
         'company_phone',
+        'province_id',
+        'city_id',
+        'district_id',
+        'village_id',
+        'full_address',
     ];
 
     /**
@@ -80,6 +85,32 @@ class User extends Authenticatable
     public function pppoeSecrets(): HasMany
     {
         return $this->hasMany(UserPppoe::class);
+    }
+
+    public function coveredAreas(): HasMany
+    {
+        return $this->hasMany(CoveredArea::class);
+    }
+
+    // Area/Wilayah relationships
+    public function province(): BelongsTo
+    {
+        return $this->belongsTo(\Laravolt\Indonesia\Models\Province::class);
+    }
+
+    public function city(): BelongsTo
+    {
+        return $this->belongsTo(\Laravolt\Indonesia\Models\City::class);
+    }
+
+    public function district(): BelongsTo
+    {
+        return $this->belongsTo(\Laravolt\Indonesia\Models\District::class);
+    }
+
+    public function village(): BelongsTo
+    {
+        return $this->belongsTo(\Laravolt\Indonesia\Models\Village::class);
     }
 
     public function hasRole($roleName): bool
@@ -146,5 +177,48 @@ class User extends Authenticatable
                !empty($this->company_phone) && 
                !empty($this->pic_photo) && 
                !empty($this->isp_logo);
+    }
+
+    /**
+     * Get complete area information
+     */
+    public function getAreaInfo()
+    {
+        return [
+            'province' => $this->province ? $this->province->name : null,
+            'city' => $this->city ? $this->city->name : null,
+            'district' => $this->district ? $this->district->name : null,
+            'village' => $this->village ? $this->village->name : null,
+            'full_address' => $this->full_address,
+            'complete_address' => $this->getCompleteAddress()
+        ];
+    }
+
+    /**
+     * Get complete formatted address
+     */
+    public function getCompleteAddress()
+    {
+        $addressParts = array_filter([
+            $this->full_address,
+            $this->village ? $this->village->name : null,
+            $this->district ? $this->district->name : null,
+            $this->city ? $this->city->name : null,
+            $this->province ? $this->province->name : null,
+        ]);
+
+        return implode(', ', $addressParts);
+    }
+
+    /**
+     * Check if user has complete area information
+     */
+    public function hasCompleteAreaInfo()
+    {
+        return !empty($this->province_id) && 
+               !empty($this->city_id) && 
+               !empty($this->district_id) && 
+               !empty($this->village_id) && 
+               !empty($this->full_address);
     }
 }
