@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Router;
 use App\Services\MikrotikService;
+use App\Services\BgpToolsService;
 use App\Traits\HandlesMikrotikConnection;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -16,12 +17,22 @@ class RouterController extends Controller
 {
     use HandlesMikrotikConnection;
     protected $mikrotikService;
+    protected $bgpToolsService;
 
-    public function __construct(MikrotikService $mikrotikService)
+    public function __construct(MikrotikService $mikrotikService, BgpToolsService $bgpToolsService)
     {
         $this->middleware('auth');
         $this->middleware('role:super_admin')->except(['getPingData']);
         $this->mikrotikService = $mikrotikService;
+        $this->bgpToolsService = $bgpToolsService;
+    }
+
+    /**
+     * Set BGP Tools Service (for testing purposes)
+     */
+    public function setBgpToolsService(BgpToolsService $bgpToolsService)
+    {
+        $this->bgpToolsService = $bgpToolsService;
     }
 
     /**
@@ -1284,6 +1295,397 @@ class RouterController extends Controller
                 'success' => false,
                 'message' => 'Error: ' . $e->getMessage()
             ]);
+        }
+    }
+
+    /**
+     * Get ISP information for router's public IP
+     */
+    public function getIspInfo(Router $router)
+    {
+        try {
+            $user = auth()->user();
+            
+            // Check if user has access to this router
+            $isSuperAdmin = $user->role && $user->role->name === 'super_admin';
+            if (!$isSuperAdmin && !$user->routers->contains($router->id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access to this router'
+                ], 403);
+            }
+
+            // Get public IP from router (like "what is my IP")
+            $publicIp = $this->getRouterPublicIp($router);
+            
+            if (!$publicIp) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Could not determine router public IP',
+                    'data' => null
+                ]);
+            }
+
+            // Get ISP information from BGP Tools using public IP
+            $ispInfo = $this->bgpToolsService->getIspInfo($publicIp);
+            
+            if (!$ispInfo['success']) {
+                // Fallback to whois if BGP Tools fails
+                $whoisInfo = $this->bgpToolsService->getWhoisInfo($publicIp);
+                if ($whoisInfo['success']) {
+                    return response()->json([
+                        'success' => true,
+                        'data' => [
+                            'public_ip' => $publicIp,
+                            'data_source' => 'whois',
+                            'isp_name' => $whoisInfo['data']['org_name'] ?? $whoisInfo['data']['net_name'] ?? 'Unknown',
+                            'asn' => isset($whoisInfo['data']['asn']) ? $whoisInfo['data']['asn'] : null,
+                            'upstreams' => [],
+                            'country' => $whoisInfo['data']['country'] ?? 'Unknown',
+                            'last_updated' => now()->format('Y-m-d H:i:s')
+                        ]
+                    ]);
+                }
+                
+                return response()->json($ispInfo);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => array_merge($ispInfo['data'], [
+                    'public_ip' => $publicIp,
+                    'data_source' => 'bgp.tools'
+                ])
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting ISP info for router ' . $router->id . ': ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve ISP information',
+                'data' => null
+            ], 500);
+        }
+    }
+
+    /**
+     * Get router's public IP (like "what is my IP")
+     */
+    private function getRouterPublicIp(Router $router)
+    {
+        try {
+            // Method 1: Try to get public IP through MikroTik tools
+            if ($this->connectToMikrotik($router)) {
+                $client = $this->mikrotikService->getClient();
+                
+                // Method 1a: Check if Cloud service is enabled (newer RouterOS)
+                try {
+                    Log::info("Method 1a: Checking cloud service for public IP");
+                    $query = new Query('/ip/cloud/print');
+                    $cloudInfo = $client->query($query)->read();
+                    
+                    Log::info("Cloud info response", ['cloud' => $cloudInfo]);
+                    
+                    if (!empty($cloudInfo) && isset($cloudInfo[0]['public-address'])) {
+                        $publicIp = trim($cloudInfo[0]['public-address']);
+                        Log::info("Found public IP in cloud service: {$publicIp}");
+                        if (filter_var($publicIp, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE)) {
+                            Log::info("Got public IP via MikroTik cloud service: {$publicIp}");
+                            return $publicIp;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("MikroTik cloud service method failed: " . $e->getMessage());
+                }
+
+                try {
+                    Log::info("Attempting to get public IP for router {$router->id} using MikroTik fetch");
+                    
+                    // Method 1b: Simple fetch method (get response directly)
+                    Log::info("Method 1b: Trying direct fetch response");
+                    $query = new Query('/tool/fetch');
+                    $query->equal('url', 'http://myip.dnsomatic.com/');
+                    $query->equal('mode', 'http');
+                    $response = $client->query($query)->read();
+                    
+                    Log::info("Direct fetch response", ['response' => $response]);
+                    
+                    if (!empty($response)) {
+                        // Look for status and data in response
+                        foreach ($response as $item) {
+                            Log::info("Checking response item", ['item' => $item]);
+                            if (isset($item['status']) && $item['status'] === 'finished' && isset($item['data'])) {
+                                $publicIp = trim($item['data']);
+                                Log::info("Found data in response: {$publicIp}");
+                                if (filter_var($publicIp, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE)) {
+                                    Log::info("Got public IP via MikroTik fetch (direct): {$publicIp}");
+                                    return $publicIp;
+                                }
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("MikroTik direct fetch method failed: " . $e->getMessage());
+                }
+
+                try {
+                    // Method 1c: Use /tool/fetch with file method (simplified)
+                    Log::info("Method 1c: Trying simplified file-based fetch");
+                    
+                    // First remove any existing file
+                    try {
+                        $query = new Query('/file/remove');
+                        $query->equal('numbers', 'mypublicip.txt');
+                        $client->query($query)->read();
+                    } catch (\Exception $e) {
+                        // File might not exist, that's ok
+                    }
+                    
+                    $query = new Query('/tool/fetch');
+                    $query->equal('url', 'http://myip.dnsomatic.com/');
+                    $query->equal('dst-path', 'mypublicip.txt');
+                    $fetchResult = $client->query($query)->read();
+                    
+                    Log::info("File fetch query result", ['result' => $fetchResult]);
+                    
+                    // Wait for file to be created and download to complete
+                    Log::info("Waiting 5 seconds for file to be written");
+                    sleep(5);
+                    
+                    // Check if file exists
+                    $query = new Query('/file/print');
+                    $fileList = $client->query($query)->read();
+                    
+                    Log::info("File list check", ['files' => $fileList]);
+                    
+                    foreach ($fileList as $file) {
+                        if (isset($file['name']) && $file['name'] === 'mypublicip.txt') {
+                            Log::info("Found file mypublicip.txt", ['file' => $file]);
+                            
+                            // Try to read the file using /file/get
+                            try {
+                                $query = new Query('/file/get');
+                                $query->equal('numbers', $file['.id']);
+                                $fileContent = $client->query($query)->read();
+                                
+                                Log::info("File content response", ['content' => $fileContent]);
+                                
+                                if (!empty($fileContent) && isset($fileContent[0]['contents'])) {
+                                    $publicIp = trim($fileContent[0]['contents']);
+                                    Log::info("Extracted IP from file: {$publicIp}");
+                                    
+                                    if (filter_var($publicIp, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE)) {
+                                        Log::info("Got public IP via MikroTik fetch (file method): {$publicIp}");
+                                        
+                                        // Clean up the temporary file
+                                        try {
+                                            $query = new Query('/file/remove');
+                                            $query->equal('numbers', $file['.id']);
+                                            $client->query($query)->read();
+                                            Log::info("Temporary file cleaned up");
+                                        } catch (\Exception $e) {
+                                            Log::warning("Could not remove temp file: " . $e->getMessage());
+                                        }
+                                        
+                                        return $publicIp;
+                                    }
+                                }
+                            } catch (\Exception $e) {
+                                Log::warning("Error reading file content: " . $e->getMessage());
+                            }
+                            break;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("MikroTik fetch file method failed: " . $e->getMessage());
+                }
+
+                try {
+                    // Method 1d: Alternative fetch method with ipify (simplified)
+                    Log::info("Method 1d: Trying ipify service");
+                    
+                    // Use HTTP instead of HTTPS for simplicity
+                    $query = new Query('/tool/fetch');
+                    $query->equal('url', 'http://ipv4.icanhazip.com/');
+                    $query->equal('dst-path', 'myip.txt');
+                    $fetchResult = $client->query($query)->read();
+                    
+                    Log::info("Ipify fetch result", ['result' => $fetchResult]);
+                    
+                    // Wait for file to be created
+                    Log::info("Waiting 3 seconds for ipify file");
+                    sleep(3);
+                    
+                    // Check if file exists and read it
+                    $query = new Query('/file/print');
+                    $fileList = $client->query($query)->read();
+                    
+                    foreach ($fileList as $file) {
+                        if (isset($file['name']) && $file['name'] === 'myip.txt') {
+                            Log::info("Found ipify file", ['file' => $file]);
+                            
+                            // Read the file
+                            try {
+                                $query = new Query('/file/get');
+                                $query->equal('numbers', $file['.id']);
+                                $fileContent = $client->query($query)->read();
+                                
+                                Log::info("Ipify file content", ['content' => $fileContent]);
+                                
+                                if (!empty($fileContent) && isset($fileContent[0]['contents'])) {
+                                    $publicIp = trim($fileContent[0]['contents']);
+                                    Log::info("Extracted IP from ipify: {$publicIp}");
+                                    
+                                    // Clean up the temporary file
+                                    try {
+                                        $query = new Query('/file/remove');
+                                        $query->equal('numbers', $file['.id']);
+                                        $client->query($query)->read();
+                                        Log::info("Ipify temp file cleaned up");
+                                    } catch (\Exception $e) {
+                                        Log::warning("Could not remove ipify temp file: " . $e->getMessage());
+                                    }
+                                    
+                                    if (filter_var($publicIp, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE)) {
+                                        Log::info("Got public IP via MikroTik fetch (ipify): {$publicIp}");
+                                        return $publicIp;
+                                    }
+                                }
+                            } catch (\Exception $e) {
+                                Log::warning("Error reading ipify file: " . $e->getMessage());
+                            }
+                            break;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("MikroTik fetch method (ipify) failed: " . $e->getMessage());
+                }
+
+                try {
+                    // Method 1d: Get from interface with default route (usually PPPoE/DHCP client)
+                    $query = new Query('/ip/route/print');
+                    $query->where('dst-address', '0.0.0.0/0');
+                    $query->where('active', 'true');
+                    $routes = $client->query($query)->read();
+                    
+                    if (!empty($routes)) {
+                        // Get the interface that has default route
+                        $defaultInterface = $routes[0]['interface'] ?? null;
+                        
+                        if ($defaultInterface) {
+                            // Get IP address from that interface
+                            $query = new Query('/ip/address/print');
+                            $query->where('interface', $defaultInterface);
+                            $addresses = $client->query($query)->read();
+                            
+                            foreach ($addresses as $addr) {
+                                $ip = explode('/', $addr['address'])[0];
+                                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE)) {
+                                    Log::info("Got public IP from interface {$defaultInterface}: {$ip}");
+                                    return $ip;
+                                }
+                            }
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("MikroTik interface method failed: " . $e->getMessage());
+                }
+            }
+
+            // Method 2: Fallback to server-side detection (less accurate but works)
+            Log::info("Falling back to server-side public IP detection");
+            return $this->getServerPublicIp();
+
+        } catch (\Exception $e) {
+            Log::error('Error getting public IP for router ' . $router->id . ': ' . $e->getMessage());
+            return $this->getServerPublicIp(); // Ultimate fallback
+        }
+    }
+
+    /**
+     * Get gateway IP from router (keeping for compatibility)
+     */
+    private function getRouterGatewayIp(Router $router)
+    {
+        try {
+            // First try to get from MikroTik API
+            $api = $this->connectToRouter($router);
+            if ($api) {
+                $query = new Query('/ip/route/print');
+                $query->where('dst-address', '0.0.0.0/0');
+                $query->where('active', 'true');
+                $routes = $api->query($query)->read();
+                
+                if (!empty($routes)) {
+                    $gateway = $routes[0]['gateway'] ?? null;
+                    if ($gateway && filter_var($gateway, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE)) {
+                        return $gateway;
+                    }
+                }
+            }
+
+            // Fallback: try to detect from common gateway detection
+            $possibleGateways = [
+                // Try to ping common gateway IPs to determine external gateway
+                '8.8.8.8', // Google DNS
+                '1.1.1.1', // Cloudflare DNS
+            ];
+
+            // For now, we'll use a simple approach - try to get public IP
+            // This could be enhanced to actually trace route to find the gateway
+            $publicIp = $this->getServerPublicIp();
+            if ($publicIp) {
+                return $publicIp;
+            }
+
+            return null;
+
+        } catch (\Exception $e) {
+            Log::error('Error getting gateway IP for router ' . $router->id . ': ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get server's public IP (fallback method)
+     */
+    private function getServerPublicIp()
+    {
+        try {
+            $services = [
+                'https://api.ipify.org?format=text',
+                'https://ifconfig.me/ip',
+                'https://icanhazip.com',
+                'https://ipecho.net/plain'
+            ];
+
+            foreach ($services as $service) {
+                try {
+                    $context = stream_context_create([
+                        'http' => [
+                            'timeout' => 5,
+                            'user_agent' => 'Mozilla/5.0 (compatible; MikroTik-ISP-Monitor/1.0)'
+                        ]
+                    ]);
+                    
+                    $response = file_get_contents($service, false, $context);
+                    if ($response !== false) {
+                        $ip = trim($response);
+                        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE)) {
+                            Log::info("Got server public IP from {$service}: {$ip}");
+                            return $ip;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    Log::warning("Service {$service} failed: " . $e->getMessage());
+                    continue;
+                }
+            }
+
+            return null;
+        } catch (\Exception $e) {
+            Log::error('Error getting server public IP: ' . $e->getMessage());
+            return null;
         }
     }
 

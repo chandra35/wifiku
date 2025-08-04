@@ -11,6 +11,7 @@ use Ramsey\Uuid\Uuid;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Storage;
 
 class User extends Authenticatable
 {
@@ -29,6 +30,11 @@ class User extends Authenticatable
         'email',
         'password',
         'role_id',
+        'pic_photo',
+        'isp_logo',
+        'company_name',
+        'company_address',
+        'company_phone',
     ];
 
     /**
@@ -89,5 +95,56 @@ class User extends Authenticatable
     public function isAdmin(): bool
     {
         return $this->hasRole('admin');
+    }
+
+    /**
+     * Get PIC photo URL
+     */
+    public function getPicPhotoUrl()
+    {
+        if ($this->pic_photo && Storage::disk('public')->exists($this->pic_photo)) {
+            return asset('storage/' . $this->pic_photo);
+        }
+        return null;
+    }
+
+    /**
+     * Get ISP logo URL
+     */
+    public function getIspLogoUrl()
+    {
+        if ($this->isp_logo && Storage::disk('public')->exists($this->isp_logo)) {
+            return asset('storage/' . $this->isp_logo);
+        }
+        return null;
+    }
+
+    /**
+     * Get complete company information for invoice generation
+     */
+    public function getCompanyInfo()
+    {
+        return [
+            'company_name' => $this->company_name ?? 'Tidak diset',
+            'company_address' => $this->company_address ?? 'Tidak diset',
+            'company_phone' => $this->company_phone ?? 'Tidak diset',
+            'pic_name' => $this->name,
+            'pic_email' => $this->email,
+            'pic_photo_url' => $this->getPicPhotoUrl(),
+            'isp_logo_url' => $this->getIspLogoUrl(),
+            'has_complete_info' => $this->hasCompleteCompanyInfo()
+        ];
+    }
+
+    /**
+     * Check if user has complete company information for invoice generation
+     */
+    public function hasCompleteCompanyInfo()
+    {
+        return !empty($this->company_name) && 
+               !empty($this->company_address) && 
+               !empty($this->company_phone) && 
+               !empty($this->pic_photo) && 
+               !empty($this->isp_logo);
     }
 }

@@ -25,23 +25,42 @@ class PppProfileController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
         $user = auth()->user();
+        $isSuperAdmin = $user->role && $user->role->name === 'super_admin';
         
-        // Super admin can see all profiles, others only see their own router's profiles
-        if ($user->isSuperAdmin()) {
-            $profiles = PppProfile::with('router')->latest()->paginate(15);
-        } else {
-            $profiles = PppProfile::with('router')
-                ->whereHas('router', function($query) use ($user) {
-                    $query->whereIn('id', $user->routers->pluck('id'));
-                })
-                ->latest()
-                ->paginate(15);
+        // Start building the query
+        $query = PppProfile::with('router');
+        
+        // Apply access control first
+        if (!$isSuperAdmin) {
+            $query->whereHas('router', function($q) use ($user) {
+                $q->whereIn('id', $user->routers->pluck('id'));
+            });
         }
-
-        $routers = $user->isSuperAdmin() ? Router::all() : $user->routers;
+        
+        // Apply search filter
+        if ($request->filled('search')) {
+            $query->where('name', 'like', '%' . $request->search . '%');
+        }
+        
+        // Apply router filter
+        if ($request->filled('router')) {
+            $query->where('router_id', $request->router);
+        }
+        
+        // Apply sync status filter
+        if ($request->filled('sync_status')) {
+            if ($request->sync_status === 'synced') {
+                $query->where('is_synced', true);
+            } elseif ($request->sync_status === 'not_synced') {
+                $query->where('is_synced', false);
+            }
+        }
+        
+        $profiles = $query->latest()->paginate(15)->appends($request->query());
+        $routers = $isSuperAdmin ? Router::all() : $user->routers;
 
         return view('ppp-profiles.index', compact('profiles', 'routers'));
     }

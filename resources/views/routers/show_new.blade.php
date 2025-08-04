@@ -167,10 +167,10 @@
                         @endif
                         
                         <form action="{{ route('routers.destroy', $router) }}" method="POST" 
-                              onsubmit="return confirm('Are you sure you want to delete this router?')">
+                              class="delete-router-form" data-router-name="{{ $router->name }}">
                             @csrf
                             @method('DELETE')
-                            <button type="submit" class="btn btn-danger btn-block">
+                            <button type="button" class="btn btn-danger btn-block delete-router-btn">
                                 <i class="fas fa-trash"></i> Delete Router
                             </button>
                         </form>
@@ -294,8 +294,100 @@ $(document).ready(function() {
             btn.html('<i class="fas fa-info-circle"></i> System Info');
         }, 2000);
     });
+    
+    // SweetAlert2 Delete Router
+    $('.delete-router-btn').click(function(e) {
+        e.preventDefault();
+        const form = $(this).closest('.delete-router-form');
+        const routerName = form.data('router-name');
+        
+        Swal.fire({
+            title: 'Konfirmasi Hapus Router',
+            html: `Apakah Anda yakin ingin menghapus router <strong>"${routerName}"</strong>?<br><br>
+                   <small class="text-warning"><i class="fas fa-exclamation-triangle"></i> Tindakan ini tidak dapat dibatalkan dan akan menghapus semua data terkait router.</small>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: '<i class="fas fa-trash"></i> Ya, Hapus!',
+            cancelButtonText: '<i class="fas fa-times"></i> Batal',
+            reverseButtons: true,
+            focusCancel: true,
+            allowOutsideClick: false,
+            allowEscapeKey: true,
+            customClass: {
+                popup: 'swal2-popup-delete',
+                title: 'swal2-title-delete',
+                content: 'swal2-content-delete'
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Show loading state
+                Swal.fire({
+                    title: 'Menghapus Router...',
+                    html: 'Sedang menghapus router dari sistem.',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    showConfirmButton: false,
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+                
+                // Submit the form
+                form.submit();
+            }
+        });
+    });
 });
 </script>
+
+<!-- SweetAlert2 CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.7.32/dist/sweetalert2.min.css">
+
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.7.32/dist/sweetalert2.all.min.js"></script>
+
+<!-- Custom SweetAlert2 Styling -->
+<style>
+.swal2-popup-delete {
+    border-radius: 15px !important;
+    padding: 2rem !important;
+}
+
+.swal2-title-delete {
+    color: #dc3545 !important;
+    font-weight: 600 !important;
+}
+
+.swal2-content-delete {
+    font-size: 1rem !important;
+    line-height: 1.5 !important;
+}
+
+.swal2-confirm {
+    background: #dc3545 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}
+
+.swal2-cancel {
+    background: #6c757d !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}
+
+.swal2-icon.swal2-warning {
+    border-color: #ffc107 !important;
+    color: #ffc107 !important;
+}
+
+.swal2-loading .swal2-styled.swal2-confirm {
+    background: #dc3545 !important;
+}
+</style>
 
 <style>
 /* Simple Dark Mode Table Styling */

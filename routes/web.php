@@ -22,6 +22,148 @@ Route::get('/test-monitor/{router}', function(App\Models\Router $router) {
     }
 });
 
+// Test BGP lookup with detected IP
+Route::get('/test-bgp-lookup', function() {
+    try {
+        $bgpService = new App\Services\BgpToolsService();
+        $ip = '103.133.61.228'; // Use the detected IP
+        
+        $bgpResult = $bgpService->getIspInfo($ip);
+        $whoisResult = $bgpService->getWhoisInfo($ip);
+        
+        return response()->json([
+            'ip_tested' => $ip,
+            'bgp_result' => $bgpResult,
+            'whois_result' => $whoisResult,
+            'timestamp' => now()
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => $e->getMessage(), 
+            'trace' => $e->getTraceAsString()
+        ]);
+    }
+});
+
+// Test ISP info with router detection (simplified)
+Route::get('/test-isp-simple', function() {
+    try {
+        $router = App\Models\Router::first();
+        if (!$router) {
+            return response()->json(['error' => 'No router found']);
+        }
+        
+        $bgpService = new App\Services\BgpToolsService();
+        
+        // Get public IP (simulated)
+        $publicIp = '103.133.61.228'; // Use the known working IP
+        
+        // Test BGP lookup
+        $bgpResult = $bgpService->getIspInfo($publicIp);
+        
+        return response()->json([
+            'router_info' => [
+                'id' => $router->id,
+                'name' => $router->name,
+                'ip' => $router->ip_address
+            ],
+            'public_ip' => $publicIp,
+            'bgp_result' => $bgpResult,
+            'timestamp' => now()
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => $e->getMessage(), 
+            'trace' => $e->getTraceAsString()
+        ]);
+    }
+});
+
+// Direct test for ISP info endpoint (no auth for testing)
+Route::get('/test-direct-isp/{router}', function(App\Models\Router $router) {
+    try {
+        $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService());
+        $controller->setBgpToolsService(new App\Services\BgpToolsService());
+        
+        $response = $controller->getIspInfo($router);
+        return $response;
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+    }
+});
+
+// Test public IP detection method
+Route::get('/test-ip-methods', function() {
+    try {
+        $router = App\Models\Router::first();
+        if (!$router) {
+            return response()->json(['error' => 'No router found in database']);
+        }
+        
+        $controller = new App\Http\Controllers\RouterController(
+            new App\Services\MikrotikService(), 
+            new App\Services\BgpToolsService()
+        );
+        
+        // Test server public IP first
+        $reflection = new ReflectionClass($controller);
+        $serverMethod = $reflection->getMethod('getServerPublicIp');
+        $serverMethod->setAccessible(true);
+        $serverIp = $serverMethod->invoke($controller);
+        
+        // Test router public IP  
+        $routerMethod = $reflection->getMethod('getRouterPublicIp');
+        $routerMethod->setAccessible(true);
+        $routerIp = $routerMethod->invoke($controller, $router);
+        
+        return response()->json([
+            'router_info' => [
+                'id' => $router->id,
+                'name' => $router->name,
+                'host' => $router->host
+            ],
+            'server_public_ip' => $serverIp,
+            'router_public_ip' => $routerIp,
+            'methods_tested' => [
+                'server_fallback' => $serverIp ? 'success' : 'failed',
+                'router_mikrotik' => $routerIp ? 'success' : 'failed'
+            ],
+            'timestamp' => now()
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => $e->getMessage(), 
+            'trace' => $e->getTraceAsString()
+        ]);
+    }
+});
+
+// Test public IP detection
+Route::get('/test-public-ip/{router}', function(App\Models\Router $router) {
+    try {
+        $controller = new App\Http\Controllers\RouterController(
+            new App\Services\MikrotikService(), 
+            new App\Services\BgpToolsService()
+        );
+        
+        // Use reflection to access private method for testing
+        $reflection = new ReflectionClass($controller);
+        $method = $reflection->getMethod('getRouterPublicIp');
+        $method->setAccessible(true);
+        
+        $publicIp = $method->invoke($controller, $router);
+        
+        return response()->json([
+            'router_id' => $router->id,
+            'router_name' => $router->name,
+            'public_ip' => $publicIp,
+            'timestamp' => now()
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+    }
+});
+
 Route::get('/test-system/{router}', function(App\Models\Router $router) {
     try {
         $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService());
@@ -162,6 +304,8 @@ Route::middleware(['auth', 'role:super_admin'])->group(function () {
         ->name('routers.monitor.network-traffic');
     Route::get('/routers/{router}/monitor/gateway-traffic', [RouterController::class, 'getGatewayTraffic'])
         ->name('routers.monitor.gateway-traffic');
+    Route::get('/routers/{router}/monitor/isp-info', [RouterController::class, 'getIspInfo'])
+        ->name('routers.monitor.isp-info');
     Route::get('/routers/{router}/monitor/logs', [RouterController::class, 'getSystemLogs'])
         ->name('routers.monitor.logs');
     
@@ -253,6 +397,17 @@ Route::middleware(['auth', 'role:super_admin,admin'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::put('/profile', [ProfileController::class, 'updateProfile'])->name('profile.update');
     Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
+    Route::delete('/profile/pic-photo', [ProfileController::class, 'deletePicPhoto'])->name('profile.delete-pic-photo');
+    Route::delete('/profile/isp-logo', [ProfileController::class, 'deleteIspLogo'])->name('profile.delete-isp-logo');
+});
+
+// Test company info for invoice development
+Route::get('/test-company-info', function() {
+    $user = Auth::user();
+    if (!$user) {
+        return response()->json(['error' => 'User not authenticated']);
+    }
+    return response()->json($user->getCompanyInfo());
 });
 
 // Profile Settings routes are included in the authenticated group above

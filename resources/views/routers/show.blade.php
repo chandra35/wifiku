@@ -179,6 +179,71 @@
                     </div>
                     @endif
                     
+                    <!-- ISP Information -->
+                    <hr>
+                    <h5 class="text-info mb-3">
+                        <i class="fas fa-globe mr-2"></i>ISP Information
+                        <button type="button" class="btn btn-xs btn-outline-info ml-2" id="refreshIspInfo">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </h5>
+                    <div id="ispInfoContainer">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <dl class="row mb-0">
+                                    <dt class="col-sm-5 text-sm">ISP Name:</dt>
+                                    <dd class="col-sm-7 text-sm mb-1">
+                                        <span id="ispName" class="text-primary font-weight-bold">
+                                            <i class="fas fa-spinner fa-spin"></i> Loading...
+                                        </span>
+                                    </dd>
+                                    
+                                    <dt class="col-sm-5 text-sm">ASN:</dt>
+                                    <dd class="col-sm-7 text-sm mb-1">
+                                        <span id="ispAsn" class="text-dark">
+                                            <small class="text-muted">Loading...</small>
+                                        </span>
+                                    </dd>
+                                    
+                                    <dt class="col-sm-5 text-sm">Country:</dt>
+                                    <dd class="col-sm-7 text-sm mb-1">
+                                        <span id="ispCountry" class="text-secondary">
+                                            <small class="text-muted">Loading...</small>
+                                        </span>
+                                    </dd>
+                                </dl>
+                            </div>
+                            <div class="col-md-6">
+                                <dl class="row mb-0">
+                                    <dt class="col-sm-5 text-sm">IP Public:</dt>
+                                    <dd class="col-sm-7 text-sm mb-1">
+                                        <span id="ispPublicIp" class="text-monospace">
+                                            <small class="text-muted">Detecting...</small>
+                                        </span>
+                                    </dd>
+                                    
+                                    <dt class="col-sm-5 text-sm">Data Source:</dt>
+                                    <dd class="col-sm-7 text-sm mb-1">
+                                        <span id="ispDataSource" class="badge badge-info badge-sm">BGP.tools</span>
+                                    </dd>
+                                    
+                                    <dt class="col-sm-5 text-sm">Last Updated:</dt>
+                                    <dd class="col-sm-7 text-xs text-muted mb-1" id="ispLastUpdate">Never</dd>
+                                </dl>
+                            </div>
+                        </div>
+                        
+                        <!-- Upstream Providers -->
+                        <div class="mt-3">
+                            <h6 class="text-secondary text-sm mb-2">
+                                <i class="fas fa-sitemap mr-2"></i>Upstream Providers
+                            </h6>
+                            <div id="ispUpstreams" class="text-sm">
+                                <span class="text-muted">Loading upstream information...</span>
+                            </div>
+                        </div>
+                    </div>
+                    
                     @if($router->description)
                     <hr>
                     <div>
@@ -217,10 +282,10 @@
                         @endif
                         
                         <form action="{{ route('routers.destroy', $router) }}" method="POST" 
-                              onsubmit="return confirm('Are you sure you want to delete this router?')">
+                              class="delete-router-form" data-router-name="{{ $router->name }}">
                             @csrf
                             @method('DELETE')
-                            <button type="submit" class="btn btn-danger btn-sm btn-block">
+                            <button type="button" class="btn btn-danger btn-sm btn-block delete-router-btn">
                                 <i class="fas fa-trash mr-1"></i> Delete Router
                             </button>
                         </form>
@@ -469,19 +534,119 @@ $(document).ready(function() {
         }
     }
 
+    // Update ISP information
+    function updateIspInfo() {
+        const routerId = "{{ $router->id }}";
+        if (routerId) {
+            console.log('Fetching ISP info for router:', routerId);
+            
+            // Show loading state for individual elements
+            $('#ispName').html('<i class="fas fa-spinner fa-spin"></i> Loading...');
+            $('#ispAsn').html('<small class="text-muted">Loading...</small>');
+            $('#ispCountry').html('<small class="text-muted">Loading...</small>');
+            $('#ispPublicIp').html('<small class="text-muted">Detecting...</small>');
+            $('#ispUpstreams').html('<span class="text-muted">Loading upstream information...</span>');
+            $('#ispLastUpdate').text('Loading...');
+            
+            $.ajax({
+                url: `/routers/${routerId}/monitor/isp-info`,
+                method: 'GET',
+                success: function(data) {
+                    console.log('ISP info response:', data);
+                    
+                    if (data.success && data.data) {
+                        // Update ISP Name
+                        $('#ispName').html(data.data.isp_name || 'Unknown');
+                        
+                        // Update ASN
+                        if (data.data.asn) {
+                            $('#ispAsn').html(`<span class="badge badge-primary">AS${data.data.asn}</span>`);
+                        } else {
+                            $('#ispAsn').html('<small class="text-muted">Unknown</small>');
+                        }
+                        
+                        // Update Country
+                        if (data.data.country) {
+                            $('#ispCountry').html(`<span class="badge badge-secondary">${data.data.country}</span>`);
+                        } else {
+                            $('#ispCountry').html('<small class="text-muted">Unknown</small>');
+                        }
+                        
+                        // Update Public IP
+                        if (data.data.public_ip) {
+                            $('#ispPublicIp').html(`<code>${data.data.public_ip}</code>`);
+                        } else {
+                            $('#ispPublicIp').html('<small class="text-muted">Not detected</small>');
+                        }
+                        
+                        // Update Prefix if available
+                        if (data.data.prefix) {
+                            $('#ispGatewayIp').append(`<br><small class="text-muted">Prefix: ${data.data.prefix}</small>`);
+                        }
+                        
+                        // Update Upstream Providers
+                        if (data.data.upstreams && data.data.upstreams.length > 0) {
+                            let upstreamHtml = '';
+                            data.data.upstreams.forEach(function(upstream) {
+                                upstreamHtml += `<span class="badge badge-info mr-1 mb-1">AS${upstream.asn} - ${upstream.name}</span>`;
+                            });
+                            $('#ispUpstreams').html(upstreamHtml);
+                        } else {
+                            $('#ispUpstreams').html('<small class="text-muted">No upstream providers found</small>');
+                        }
+                        
+                        // Update Data Source
+                        if (data.data.data_source) {
+                            $('#ispDataSource').text(data.data.data_source);
+                            $('#ispDataSource').removeClass('badge-info badge-warning').addClass('badge-success');
+                        }
+                        
+                        // Update Last Updated
+                        if (data.data.last_updated) {
+                            $('#ispLastUpdate').text(new Date(data.data.last_updated).toLocaleString());
+                        }
+                    } else {
+                        // Handle error case
+                        $('#ispName').html('<span class="text-danger">Error loading</span>');
+                        $('#ispAsn').html('<small class="text-danger">Error</small>');
+                        $('#ispCountry').html('<small class="text-danger">Error</small>');
+                        $('#ispGatewayIp').html('<small class="text-danger">Error</small>');
+                        $('#ispUpstreams').html(`<div class="alert alert-warning alert-sm">${data.message || 'Unable to retrieve ISP information'}</div>`);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error fetching ISP info:', error);
+                    $('#ispName').html('<span class="text-danger">Connection Error</span>');
+                    $('#ispAsn').html('<small class="text-danger">Error</small>');
+                    $('#ispCountry').html('<small class="text-danger">Error</small>');
+                    $('#ispGatewayIp').html('<small class="text-danger">Error</small>');
+                    $('#ispUpstreams').html(`<div class="alert alert-danger alert-sm">Error loading ISP information: ${error}</div>`);
+                }
+            });
+        } else {
+            console.warn('No router ID found for ISP info update');
+        }
+    }
+
     // Initial load
     updateSystemIdentity();
     updateConnectionStatus();
     updateNetworkTraffic();
     updateGatewayTraffic();
+    updateIspInfo();
 
-    // Auto-refresh every 30 seconds
+    // Auto-refresh every 30 seconds (except ISP info which refreshes every 5 minutes)
     setInterval(function() {
         updateSystemIdentity();
         updateConnectionStatus();
         updateNetworkTraffic();
         updateGatewayTraffic();
     }, 30000);
+
+    // Auto-refresh ISP info every 5 minutes (less frequent due to caching)
+    setInterval(function() {
+        updateIspInfo();
+    }, 300000);
 
     // Manual refresh button for system info
     $('#refreshStatus').click(function() {
@@ -543,6 +708,15 @@ $(document).ready(function() {
         updateGatewayTraffic();
         setTimeout(function() {
             $('#refreshGatewayInfo i').removeClass('fa-spin');
+        }, 2000);
+    });
+
+    // Manual refresh button for ISP info
+    $('#refreshIspInfo').click(function() {
+        $(this).find('i').addClass('fa-spin');
+        updateIspInfo();
+        setTimeout(function() {
+            $('#refreshIspInfo i').removeClass('fa-spin');
         }, 2000);
     });
 
@@ -693,8 +867,100 @@ $(document).ready(function() {
     updateConnectionStatus();
     updateNetworkTraffic();
     updateGatewayTraffic();
+    
+    // SweetAlert2 Delete Router
+    $('.delete-router-btn').click(function(e) {
+        e.preventDefault();
+        const form = $(this).closest('.delete-router-form');
+        const routerName = form.data('router-name');
+        
+        Swal.fire({
+            title: 'Konfirmasi Hapus Router',
+            html: `Apakah Anda yakin ingin menghapus router <strong>"${routerName}"</strong>?<br><br>
+                   <small class="text-warning"><i class="fas fa-exclamation-triangle"></i> Tindakan ini tidak dapat dibatalkan dan akan menghapus semua data terkait router.</small>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: '<i class="fas fa-trash"></i> Ya, Hapus!',
+            cancelButtonText: '<i class="fas fa-times"></i> Batal',
+            reverseButtons: true,
+            focusCancel: true,
+            allowOutsideClick: false,
+            allowEscapeKey: true,
+            customClass: {
+                popup: 'swal2-popup-delete',
+                title: 'swal2-title-delete',
+                content: 'swal2-content-delete'
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Show loading state
+                Swal.fire({
+                    title: 'Menghapus Router...',
+                    html: 'Sedang menghapus router dari sistem.',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    showConfirmButton: false,
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+                
+                // Submit the form
+                form.submit();
+            }
+        });
+    });
 });
 </script>
+
+<!-- SweetAlert2 CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.7.32/dist/sweetalert2.min.css">
+
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.7.32/dist/sweetalert2.all.min.js"></script>
+
+<!-- Custom SweetAlert2 Styling -->
+<style>
+.swal2-popup-delete {
+    border-radius: 15px !important;
+    padding: 2rem !important;
+}
+
+.swal2-title-delete {
+    color: #dc3545 !important;
+    font-weight: 600 !important;
+}
+
+.swal2-content-delete {
+    font-size: 1rem !important;
+    line-height: 1.5 !important;
+}
+
+.swal2-confirm {
+    background: #dc3545 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}
+
+.swal2-cancel {
+    background: #6c757d !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}
+
+.swal2-icon.swal2-warning {
+    border-color: #ffc107 !important;
+    color: #ffc107 !important;
+}
+
+.swal2-loading .swal2-styled.swal2-confirm {
+    background: #dc3545 !important;
+}
+</style>
 @endsection
 
 @section('css')

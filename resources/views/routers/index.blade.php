@@ -459,12 +459,10 @@
 
 @section('js')
 <script>
-$(document).ready(function() {
-    let activeRouters = 0;
-    let totalPppSessions = 0;
-    let totalCpuLoad = 0;
-    let routerCount = 0;
+// Global variables to track statistics
+let routerStatistics = {};
 
+$(document).ready(function() {
     // Auto-dismiss alerts after 5 seconds
     setTimeout(function() {
         $('.alert').fadeOut('slow');
@@ -493,7 +491,7 @@ $(document).ready(function() {
             @if($router->status === 'active')
                 loadRouterStatus('{{ $router->id }}');
             @else
-                updateRouterStatus('{{ $router->id }}', {
+                const inactiveData = {
                     connected: false,
                     cpu_load: 'N/A',
                     memory_usage: 'N/A',
@@ -502,7 +500,9 @@ $(document).ready(function() {
                     ping_8888: 'N/A',
                     uptime: 'N/A',
                     error: 'Router is inactive'
-                });
+                };
+                updateRouterStatus('{{ $router->id }}', inactiveData);
+                updateStatistics(inactiveData, '{{ $router->id }}');
             @endif
         @endforeach
 
@@ -528,11 +528,11 @@ function loadRouterStatus(routerId) {
         timeout: 30000,
         success: function(data) {
             updateRouterStatus(routerId, data);
-            updateStatistics(data);
+            updateStatistics(data, routerId);
         },
         error: function(xhr, status, error) {
             console.error('Failed to load router status for router ' + routerId + ':', error);
-            updateRouterStatus(routerId, {
+            const errorData = {
                 connected: false,
                 cpu_load: 'N/A',
                 memory_usage: 'N/A',
@@ -541,7 +541,9 @@ function loadRouterStatus(routerId) {
                 ping_8888: 'N/A',
                 uptime: 'N/A',
                 error: 'Connection timeout'
-            });
+            };
+            updateRouterStatus(routerId, errorData);
+            updateStatistics(errorData, routerId);
         }
     });
 }
@@ -693,24 +695,47 @@ function updateRouterStatus(routerId, data) {
     }
 }
 
-function updateStatistics(data) {
-    if (data.connected) {
-        let currentActive = parseInt($('#active-routers').text()) || 0;
-        $('#active-routers').text(currentActive + 1);
-        
-        if (data.active_ppp_sessions !== 'N/A') {
-            let currentPpp = parseInt($('#total-ppp').text()) || 0;
-            let newPpp = parseInt(data.active_ppp_sessions) || 0;
-            $('#total-ppp').text(currentPpp + newPpp);
+function updateStatistics(data, routerId) {
+    // Store individual router statistics
+    routerStatistics[routerId] = {
+        connected: data.connected,
+        pppSessions: data.connected && data.active_ppp_sessions !== 'N/A' ? parseInt(data.active_ppp_sessions) || 0 : 0,
+        cpuLoad: data.connected && data.cpu_load !== 'N/A' ? parseInt(data.cpu_load) || 0 : 0
+    };
+    
+    // Calculate totals from all router data
+    calculateTotalStatistics();
+}
+
+function calculateTotalStatistics() {
+    let activeCount = 0;
+    let totalPpp = 0;
+    let totalCpu = 0;
+    let cpuCount = 0;
+    
+    // Sum up all router statistics
+    Object.values(routerStatistics).forEach(router => {
+        if (router.connected) {
+            activeCount++;
+            totalPpp += router.pppSessions;
+            
+            if (router.cpuLoad > 0) {
+                totalCpu += router.cpuLoad;
+                cpuCount++;
+            }
         }
-        
-        if (data.cpu_load !== 'N/A') {
-            let currentCpu = $('#avg-cpu').text().replace('%', '');
-            let routerCpu = parseInt(data.cpu_load) || 0;
-            let activeCount = parseInt($('#active-routers').text()) || 1;
-            let avgCpu = Math.round((parseInt(currentCpu) * (activeCount - 1) + routerCpu) / activeCount);
-            $('#avg-cpu').text(avgCpu + '%');
-        }
+    });
+    
+    // Update the display
+    $('#active-routers').text(activeCount);
+    $('#total-ppp').text(totalPpp);
+    
+    // Calculate average CPU (only from routers that report CPU)
+    if (cpuCount > 0) {
+        const avgCpu = Math.round(totalCpu / cpuCount);
+        $('#avg-cpu').text(avgCpu + '%');
+    } else {
+        $('#avg-cpu').text('0%');
     }
 }
 
@@ -727,28 +752,108 @@ function formatUptime(uptime) {
 }
 
 function deleteRouter(routerId, routerName) {
-    if (confirm(`Are you sure you want to delete router "${routerName}"? This action cannot be undone.`)) {
-        // Create a form and submit it
-        const form = $('<form>', {
-            method: 'POST',
-            action: `/routers/${routerId}`
-        });
-        
-        form.append($('<input>', {
-            type: 'hidden',
-            name: '_token',
-            value: $('meta[name="csrf-token"]').attr('content')
-        }));
-        
-        form.append($('<input>', {
-            type: 'hidden',
-            name: '_method',
-            value: 'DELETE'
-        }));
-        
-        $('body').append(form);
-        form.submit();
-    }
+    Swal.fire({
+        title: 'Konfirmasi Hapus Router',
+        html: `Apakah Anda yakin ingin menghapus router <strong>"${routerName}"</strong>?<br><br>
+               <small class="text-warning"><i class="fas fa-exclamation-triangle"></i> Tindakan ini tidak dapat dibatalkan dan akan menghapus semua data terkait router.</small>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: '<i class="fas fa-trash"></i> Ya, Hapus!',
+        cancelButtonText: '<i class="fas fa-times"></i> Batal',
+        reverseButtons: true,
+        focusCancel: true,
+        allowOutsideClick: false,
+        allowEscapeKey: true,
+        customClass: {
+            popup: 'swal2-popup-delete',
+            title: 'swal2-title-delete',
+            content: 'swal2-content-delete'
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // Show loading state
+            Swal.fire({
+                title: 'Menghapus Router...',
+                html: 'Sedang menghapus router dari sistem.',
+                allowOutsideClick: false,
+                allowEscapeKey: false,
+                showConfirmButton: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+            
+            // Create a form and submit it
+            const form = $('<form>', {
+                method: 'POST',
+                action: `/routers/${routerId}`
+            });
+            
+            form.append($('<input>', {
+                type: 'hidden',
+                name: '_token',
+                value: $('meta[name="csrf-token"]').attr('content')
+            }));
+            
+            form.append($('<input>', {
+                type: 'hidden',
+                name: '_method',
+                value: 'DELETE'
+            }));
+            
+            $('body').append(form);
+            form.submit();
+        }
+    });
 }
 </script>
+
+<!-- SweetAlert2 CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.7.32/dist/sweetalert2.min.css">
+
+<!-- SweetAlert2 JS -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.7.32/dist/sweetalert2.all.min.js"></script>
+
+<!-- Custom SweetAlert2 Styling -->
+<style>
+.swal2-popup-delete {
+    border-radius: 15px !important;
+    padding: 2rem !important;
+}
+
+.swal2-title-delete {
+    color: #dc3545 !important;
+    font-weight: 600 !important;
+}
+
+.swal2-content-delete {
+    font-size: 1rem !important;
+    line-height: 1.5 !important;
+}
+
+.swal2-confirm {
+    background: #dc3545 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}
+
+.swal2-cancel {
+    background: #6c757d !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+}
+
+.swal2-icon.swal2-warning {
+    border-color: #ffc107 !important;
+    color: #ffc107 !important;
+}
+
+.swal2-loading .swal2-styled.swal2-confirm {
+    background: #dc3545 !important;
+}
+</style>
 @stop
