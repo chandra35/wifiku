@@ -196,7 +196,10 @@
                                         <a href="{{ route('routers.edit', $router) }}" class="btn btn-warning btn-sm" title="Edit">
                                             <i class="fas fa-edit"></i>
                                         </a>
-                                        <button type="button" class="btn btn-danger btn-sm" title="Delete" onclick="deleteRouter({{ $router->id }}, '{{ $router->name }}')">
+                                        <button type="button" class="btn btn-danger btn-sm btn-delete-router" 
+                                                title="Delete" 
+                                                data-router-id="{{ $router->id }}" 
+                                                data-router-name="{{ $router->name }}">
                                             <i class="fas fa-trash"></i>
                                         </button>
                                     </div>
@@ -483,6 +486,13 @@ $(document).ready(function() {
                 row.hide();
             }
         });
+    });
+
+    // Delete router event handler
+    $('.btn-delete-router').on('click', function() {
+        const routerId = $(this).data('router-id');
+        const routerName = $(this).data('router-name');
+        deleteRouter(routerId, routerName);
     });
 
     // Load router status for each router (slower interval)

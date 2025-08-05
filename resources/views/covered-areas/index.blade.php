@@ -51,60 +51,15 @@
                                 <thead>
                                     <tr>
                                         <th width="5%">#</th>
-                                        @if(auth()->user()->role === 'Super Admin')
+                                        @if(auth()->user()->role && auth()->user()->role->name === 'super_admin')
                                             <th width="15%">Admin/POP</th>
                                         @endif
-                                        <th width="25%">Provinsi</th>
-                                        <th width="20%">Kab/Kota</th>
-                                        <th width="20%">Kecamatan</th>
-                                        <th width="15%">Desa/Kelurahan</th>
+                                        <th width="30%">Area Coverage</th>
+                                        <th width="20%">Deskripsi</th>
                                         <th width="10%">Status</th>
                                         <th width="15%">Aksi</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    @foreach($coveredAreas as $index => $area)
-                                        <tr>
-                                            <td>{{ $index + 1 }}</td>
-                                            @if(auth()->user()->role === 'Super Admin')
-                                                <td>
-                                                    <strong>{{ $area->user->name }}</strong><br>
-                                                    <small class="text-muted">{{ $area->user->email }}</small>
-                                                </td>
-                                            @endif
-                                            <td>{{ $area->province->name ?? '-' }}</td>
-                                            <td>{{ $area->city->name ?? '-' }}</td>
-                                            <td>{{ $area->district->name ?? '-' }}</td>
-                                            <td>{{ $area->village->name ?? 'Semua Desa' }}</td>
-                                            <td>
-                                                <button type="button" 
-                                                        class="btn btn-sm {{ $area->status === 'active' ? 'btn-success' : 'btn-secondary' }} btn-toggle-status"
-                                                        data-id="{{ $area->id }}"
-                                                        data-status="{{ $area->status }}">
-                                                    <i class="fas {{ $area->status === 'active' ? 'fa-check-circle' : 'fa-times-circle' }} mr-1"></i>
-                                                    {{ ucfirst($area->status) }}
-                                                </button>
-                                            </td>
-                                            <td>
-                                                <div class="btn-group btn-group-sm">
-                                                    <button type="button" 
-                                                            class="btn btn-info btn-edit" 
-                                                            data-id="{{ $area->id }}"
-                                                            title="Edit">
-                                                        <i class="fas fa-edit"></i>
-                                                    </button>
-                                                    <button type="button" 
-                                                            class="btn btn-danger btn-delete" 
-                                                            data-id="{{ $area->id }}"
-                                                            data-area="{{ $area->complete_area }}"
-                                                            title="Hapus">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
                             </table>
                         </div>
                     @endif
@@ -253,16 +208,30 @@ $(document).ready(function() {
     
     // Initialize DataTable
     if ($('#coveredAreasTable').length) {
-        // For now, use simple DataTable without server-side processing
         table = $('#coveredAreasTable').DataTable({
+            processing: true,
+            serverSide: true,
+            ajax: {
+                url: '{{ route("covered-areas.index") }}',
+                data: function(d) {
+                    d.ajax = 1; // Flag untuk AJAX request
+                }
+            },
+            columns: [
+                { data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false },
+                @if(auth()->user()->role && auth()->user()->role->name === 'super_admin')
+                { data: 'owner_info', name: 'owner_info', orderable: false },
+                @endif
+                { data: 'area_info', name: 'area_info', orderable: false },
+                { data: 'description', name: 'description' },
+                { data: 'status_badge', name: 'status', orderable: false, searchable: false },
+                { data: 'action', name: 'action', orderable: false, searchable: false }
+            ],
             responsive: true,
             autoWidth: false,
             language: {
                 url: '//cdn.datatables.net/plug-ins/1.10.24/i18n/Indonesian.json'
-            },
-            columnDefs: [
-                { orderable: false, targets: [0, 3, 4] }
-            ]
+            }
         });
     }
     

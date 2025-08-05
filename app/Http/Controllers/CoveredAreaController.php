@@ -6,6 +6,7 @@ use App\Models\CoveredArea;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Laravolt\Indonesia\Models\Province;
 use Laravolt\Indonesia\Models\City;
 use Laravolt\Indonesia\Models\District;
@@ -16,7 +17,7 @@ class CoveredAreaController extends Controller
 {
     public function __construct()
     {
-        $this->middleware(['auth', 'role:super_admin,admin']);
+        $this->middleware(['auth', 'role:super_admin,admin,pop']);
     }
 
     /**
@@ -27,11 +28,21 @@ class CoveredAreaController extends Controller
         $user = Auth::user();
         $query = CoveredArea::with(['user', 'province', 'city', 'district', 'village']);
         
+        // Debug: Log current user role
+        Log::info('CoveredArea Index - Current user: ' . $user->name . ' | Role: ' . $user->role->name);
+        
         // Jika Super Admin, bisa melihat semua covered areas
         // Jika Admin/POP, hanya bisa melihat covered areas mereka sendiri
-        if ($user->role !== 'Super Admin') {
+        if (!$user->isSuperAdmin()) {
+            Log::info('User is not Super Admin, filtering by user_id: ' . $user->id);
             $query->where('user_id', $user->id);
+        } else {
+            Log::info('User is Super Admin, showing all covered areas');
         }
+        
+        // Debug: Count total areas
+        $totalAreas = $query->count();
+        Log::info('Total covered areas for this user: ' . $totalAreas);
         
         // If AJAX request for DataTable
         if ($request->ajax()) {
@@ -39,6 +50,16 @@ class CoveredAreaController extends Controller
             
             return DataTables::of($coveredAreas)
                 ->addIndexColumn()
+                ->addColumn('owner_info', function($row) use ($user) {
+                    // Tampilkan owner hanya untuk Super Admin
+                    if ($user->role->name === 'super_admin') {
+                        return '<div class="text-sm">
+                                    <strong class="text-primary">'.$row->user->name.'</strong><br>
+                                    <small class="text-muted">'.$row->user->email.'</small>
+                                </div>';
+                    }
+                    return null;
+                })
                 ->addColumn('area_info', function($row) {
                     return $row->complete_area;
                 })
@@ -72,7 +93,7 @@ class CoveredAreaController extends Controller
                     
                     return '<div class="btn-group">'.$buttons.'</div>';
                 })
-                ->rawColumns(['status_badge', 'action'])
+                ->rawColumns(['owner_info', 'status_badge', 'action'])
                 ->make(true);
         }
         
@@ -188,7 +209,7 @@ class CoveredAreaController extends Controller
     public function edit(CoveredArea $coveredArea)
     {
         // Pastikan user hanya bisa edit covered area mereka sendiri (kecuali Super Admin)
-        if (Auth::user()->role !== 'Super Admin' && $coveredArea->user_id !== Auth::id()) {
+        if (Auth::user()->role->name !== 'super_admin' && $coveredArea->user_id !== Auth::id()) {
             abort(403, 'Unauthorized action.');
         }
         
@@ -239,7 +260,7 @@ class CoveredAreaController extends Controller
     public function update(Request $request, CoveredArea $coveredArea)
     {
         // Pastikan user hanya bisa update covered area mereka sendiri (kecuali Super Admin)
-        if (Auth::user()->role !== 'Super Admin' && $coveredArea->user_id !== Auth::id()) {
+        if (Auth::user()->role->name !== 'super_admin' && $coveredArea->user_id !== Auth::id()) {
             abort(403, 'Unauthorized action.');
         }
         
@@ -321,7 +342,7 @@ class CoveredAreaController extends Controller
     public function destroy(CoveredArea $coveredArea)
     {
         // Pastikan user hanya bisa hapus covered area mereka sendiri (kecuali Super Admin)
-        if (Auth::user()->role !== 'Super Admin' && $coveredArea->user_id !== Auth::id()) {
+        if (Auth::user()->role->name !== 'super_admin' && $coveredArea->user_id !== Auth::id()) {
             abort(403, 'Unauthorized action.');
         }
         
