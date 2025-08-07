@@ -16,7 +16,7 @@ use App\Http\Controllers\CoveredAreaController;
 // Debug route tanpa middleware authentication (di luar semua middleware)
 Route::get('/test-monitor/{router}', function(App\Models\Router $router) {
     try {
-        $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService());
+        $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService(), new App\Services\BgpToolsService());
         $response = $controller->getBasicSystemInfo($router);
         return $response;
     } catch (\Exception $e) {
@@ -394,6 +394,14 @@ Route::middleware(['auth', 'role:super_admin,admin'])->group(function () {
         ->name('ppp-profiles.preview-import');
     Route::post('/ppp-profiles/import-selected', [PppProfileController::class, 'importSelected'])
         ->name('ppp-profiles.import-selected');
+    
+    // IP Pool Management for PPP Profiles
+    Route::post('/ppp-profiles/get-ip-pools', [PppProfileController::class, 'getIpPools'])
+        ->name('ppp-profiles.get-ip-pools');
+    Route::post('/ppp-profiles/create-ip-pool', [PppProfileController::class, 'createIpPool'])
+        ->name('ppp-profiles.create-ip-pool');
+    Route::post('/ppp-profiles/delete-ip-pool', [PppProfileController::class, 'deleteIpPool'])
+        ->name('ppp-profiles.delete-ip-pool');
     
     // Covered Areas Management - untuk Admin/POP mengelola area coverage
     Route::resource('covered-areas', CoveredAreaController::class);

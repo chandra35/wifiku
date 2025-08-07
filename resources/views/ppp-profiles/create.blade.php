@@ -75,14 +75,44 @@
                     </div>
                     <div class="col-md-6">
                         <div class="form-group">
+                            <label for="remote_address_type">Remote Address Type</label>
+                            <select class="form-control" id="remote_address_type" name="remote_address_type">
+                                <option value="manual" {{ old('remote_address_type', 'manual') == 'manual' ? 'selected' : '' }}>Manual IP/Range</option>
+                                <option value="pool" {{ old('remote_address_type') == 'pool' ? 'selected' : '' }}>IP Pool</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Manual IP Input -->
+                        <div class="form-group" id="remote_address_manual">
                             <label for="remote_address">Remote IP Address</label>
                             <input type="text" class="form-control @error('remote_address') is-invalid @enderror" 
-                                   id="remote_address" name="remote_address" value="{{ old('remote_address') }}" 
-                                   placeholder="192.168.1.0/24 or specific IP">
-                            <small class="form-text text-muted">IP range or specific IP for clients</small>
+                                   id="remote_address" name="remote_address" 
+                                   value="{{ old('remote_address') }}" 
+                                   placeholder="192.168.1.0/24 or pool name">
+                            <small class="form-text text-muted">IP range for clients or IP Pool name</small>
                             @error('remote_address')
                                 <span class="invalid-feedback">{{ $message }}</span>
                             @enderror
+                        </div>
+                        
+                        <!-- IP Pool Selection -->
+                        <div class="form-group" id="ip_pool_section" style="display: none;">
+                            <label for="remote_address_pool">Select IP Pool</label>
+                            <div class="input-group">
+                                <select class="form-control" id="remote_address_pool" name="remote_address_pool" disabled>
+                                    <option value="">Loading pools...</option>
+                                </select>
+                                <div class="input-group-append">
+                                    <button type="button" class="btn btn-outline-secondary" id="btn-refresh-pools" 
+                                            title="Refresh Pools" style="display: none;">
+                                        <i class="fas fa-sync"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-outline-primary" id="btn-add-pool">
+                                        <i class="fas fa-plus"></i> Add Pool
+                                    </button>
+                                </div>
+                            </div>
+                            <small class="form-text text-muted">Select existing IP pool or create new one</small>
                         </div>
                     </div>
                 </div>
@@ -233,76 +263,799 @@
             </div>
         </form>
     </div>
+
+    <!-- IP Pool Management Modal -->
+    <div class="modal fade" id="addPoolModal" tabindex="-1" role="dialog" aria-labelledby="addPoolModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addPoolModalLabel">
+                        <i class="fas fa-network-wired"></i> IP Pool Management
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <!-- Tab Navigation -->
+                    <ul class="nav nav-tabs" id="poolTabs" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="existing-pools-tab" data-toggle="tab" href="#existing-pools" role="tab">
+                                <i class="fas fa-list"></i> Existing IP Pools
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="create-pool-tab" data-toggle="tab" href="#create-pool" role="tab">
+                                <i class="fas fa-plus"></i> Create New Pool
+                            </a>
+                        </li>
+                    </ul>
+
+                    <!-- Tab Content -->
+                    <div class="tab-content" id="poolTabsContent">
+                        <!-- Existing Pools Tab -->
+                        <div class="tab-pane fade show active" id="existing-pools" role="tabpanel">
+                            <div class="mt-3">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="mb-0">
+                                        <i class="fas fa-server"></i> IP Pools from MikroTik Router
+                                    </h6>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" id="refresh-pools-list">
+                                        <i class="fas fa-sync"></i> Refresh
+                                    </button>
+                                </div>
+                                
+                                <!-- Loading State -->
+                                <div id="pools-loading" class="text-center py-4" style="display: none;">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="sr-only">Loading...</span>
+                                    </div>
+                                    <p class="mt-2 text-muted">Loading IP pools from MikroTik...</p>
+                                </div>
+                                
+                                <!-- Pools Table -->
+                                <div class="table-responsive">
+                                    <table class="table table-hover table-sm" id="existing-pools-table">
+                                        <thead class="thead-light">
+                                            <tr>
+                                                <th width="20%">Pool Name</th>
+                                                <th width="50%">IP Ranges</th>
+                                                <th width="15%">Used IPs</th>
+                                                <th width="15%" class="text-center">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="existing-pools-body">
+                                            <tr>
+                                                <td colspan="4" class="text-center text-muted py-4">
+                                                    <i class="fas fa-info-circle"></i> Select a router first to load IP pools
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Create Pool Tab -->
+                        <div class="tab-pane fade" id="create-pool" role="tabpanel">
+                            <div class="mt-3">
+                                <form id="addPoolForm">
+                                    @csrf
+                                    <input type="hidden" id="pool_router_id" name="router_id">
+                                    
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="form-group">
+                                                <label for="pool_name">Pool Name <span class="text-danger">*</span></label>
+                                                <input type="text" class="form-control" id="pool_name" name="name" required
+                                                       placeholder="e.g., pool-users">
+                                                <small class="form-text text-muted">Must be unique on the router</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="form-group">
+                                                <label for="pool_comment">Comment</label>
+                                                <input type="text" class="form-control" id="pool_comment" name="comment"
+                                                       placeholder="Optional description">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="pool_ranges">IP Ranges <span class="text-danger">*</span></label>
+                                        <textarea class="form-control" id="pool_ranges" name="ranges" rows="4" required
+                                                  placeholder="192.168.1.100-192.168.1.200&#10;192.168.1.210-192.168.1.250"></textarea>
+                                        <small class="form-text text-muted">
+                                            <strong>Format:</strong> start_ip-end_ip (one range per line)<br>
+                                            <strong>Example:</strong> 192.168.1.100-192.168.1.200
+                                        </small>
+                                    </div>
+                                    
+                                    <div class="alert alert-info">
+                                        <h6><i class="fas fa-info-circle"></i> Tips:</h6>
+                                        <ul class="mb-0 pl-3">
+                                            <li>Use consecutive IP ranges for better management</li>
+                                            <li>Avoid overlapping with existing network assignments</li>
+                                            <li>Consider DHCP ranges when defining pools</li>
+                                        </ul>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                    <button type="button" class="btn btn-primary" id="save-pool-btn" style="display: none;">
+                        <i class="fas fa-save"></i> Create Pool
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Pool Confirmation Modal -->
+    <div class="modal fade" id="deletePoolModal" tabindex="-1" role="dialog" aria-labelledby="deletePoolModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title" id="deletePoolModalLabel">
+                        <i class="fas fa-exclamation-triangle"></i> Confirm Delete IP Pool
+                    </h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center">
+                        <i class="fas fa-exclamation-triangle text-danger" style="font-size: 3rem;"></i>
+                        <h4 class="mt-3">Delete IP Pool</h4>
+                        <p>Are you sure you want to delete IP pool <strong id="delete-pool-name"></strong>?</p>
+                        <div class="alert alert-warning">
+                            <small>
+                                <i class="fas fa-warning"></i> 
+                                This will permanently delete the IP pool from MikroTik router. Any PPP profiles using this pool may be affected.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                    <button type="button" class="btn btn-danger" id="confirm-delete-pool">
+                        <i class="fas fa-trash"></i> Delete Pool
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 @stop
 
 @section('css')
     <!-- Select2 CSS -->
     <link rel="stylesheet" href="{{ asset('vendor/select2/css/select2.min.css') }}">
     <link rel="stylesheet" href="{{ asset('vendor/select2-bootstrap4-theme/select2-bootstrap4.min.css') }}">
+    
+    <style>
+        /* Custom styles for IP Pool modal */
+        #addPoolModal .modal-xl {
+            max-width: 1200px;
+        }
+        
+        #addPoolModal .table-responsive {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        #addPoolModal .table th {
+            position: sticky;
+            top: 0;
+            background-color: #f8f9fa;
+            z-index: 10;
+            border-top: none;
+        }
+        
+        #existing-pools-table tbody tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .pool-select-btn, .pool-delete-btn {
+            transition: all 0.2s;
+        }
+        
+        .pool-select-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        .pool-delete-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        /* Tab content padding */
+        .tab-content {
+            min-height: 400px;
+        }
+        
+        /* Loading spinner */
+        #pools-loading {
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Enhanced table styling */
+        #existing-pools-table {
+            border: 1px solid #dee2e6;
+        }
+        
+        #existing-pools-table th {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #495057;
+        }
+        
+        #existing-pools-table td {
+            vertical-align: middle;
+            border-color: #dee2e6;
+        }
+        
+        /* Action buttons */
+        .btn-group-sm .btn {
+            border-radius: 4px;
+            margin: 0 1px;
+        }
+        
+        /* Badge styles for pool usage */
+        .text-warning {
+            color: #856404 !important;
+        }
+        
+        /* Modal enhancements */
+        .modal-header {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            border-bottom: none;
+        }
+        
+        .modal-header .close {
+            color: white;
+            opacity: 0.8;
+        }
+        
+        .modal-header .close:hover {
+            opacity: 1;
+        }
+        
+        /* Tab styling */
+        .nav-tabs .nav-link {
+            border: 1px solid transparent;
+            border-radius: 0.25rem 0.25rem 0 0;
+            color: #495057;
+            font-weight: 500;
+        }
+        
+        .nav-tabs .nav-link.active {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            border-color: #007bff;
+        }
+        
+        .nav-tabs .nav-link:hover {
+            border-color: #e9ecef #e9ecef #dee2e6;
+            background-color: #f8f9fa;
+        }
+        
+        .nav-tabs .nav-link.active:hover {
+            background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+            color: white;
+        }
+        
+        /* Form enhancements */
+        .form-control:focus {
+            border-color: #80bdff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+        }
+        
+        /* Alert styling */
+        .alert-info {
+            background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+            border-color: #bee5eb;
+        }
+        
+        /* Delete modal styling */
+        #deletePoolModal .modal-header {
+            background: linear-gradient(135deg, #dc3545 0%, #bd2130 100%);
+        }
+    </style>
 @stop
 
 @section('js')
     <!-- Select2 JS -->
     <script src="{{ asset('vendor/select2/js/select2.full.min.js') }}"></script>
     
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     <script>
-    $(document).ready(function() {
-        // Initialize Select2
-        $('.select2').select2({
-            theme: 'bootstrap4',
-            placeholder: 'Select router...',
-            allowClear: true
+        // Check if required libraries are loaded
+        console.log('jQuery available:', typeof $ !== 'undefined');
+        console.log('SweetAlert available:', typeof Swal !== 'undefined');
+        
+        $(document).ready(function() {
+            let currentPoolToDelete = null;
+
+            // Initialize Select2
+            $('.select2').select2({
+                theme: 'bootstrap4'
+            });
+
+            // Remote Address Type Change Handler
+            $('#remote_address_type').change(function() {
+                const selectedType = $(this).val();
+                console.log('Remote address type changed to:', selectedType);
+                
+                if (selectedType === 'pool') {
+                    console.log('Switching to pool mode');
+                    
+                    // Debug element existence
+                    console.log('Elements found:');
+                    console.log('- remote_address_manual:', $('#remote_address_manual').length);
+                    console.log('- ip_pool_section:', $('#ip_pool_section').length);
+                    console.log('- btn-refresh-pools:', $('#btn-refresh-pools').length);
+                    
+                    $('#remote_address_manual').hide();
+                    $('#ip_pool_section').show().css('display', 'block');
+                    $('#btn-refresh-pools').show().css('display', 'inline-block');
+                    
+                    // Force show with vanilla JS if jQuery fails
+                    document.getElementById('ip_pool_section').style.display = 'block';
+                    document.getElementById('btn-refresh-pools').style.display = 'inline-block';
+                    
+                    // Verify visibility
+                    console.log('After show/hide:');
+                    console.log('- ip_pool_section visible:', $('#ip_pool_section').is(':visible'));
+                    console.log('- btn-refresh-pools visible:', $('#btn-refresh-pools').is(':visible'));
+                    
+                    const routerId = $('#router_id').val();
+                    if (routerId) {
+                        console.log('Loading pools for router:', routerId);
+                        loadIPPools(routerId);
+                    } else {
+                        console.log('No router selected');
+                    }
+                } else {
+                    console.log('Switching to manual mode');
+                    $('#remote_address_manual').show();
+                    $('#ip_pool_section').hide();
+                    $('#btn-refresh-pools').hide();
+                    
+                    // Clear the remote_address field when switching to manual if it was a pool name
+                    const currentValue = $('#remote_address').val();
+                    if (currentValue && !currentValue.includes('/') && !currentValue.includes('-') && 
+                        !currentValue.match(/^\d+\.\d+\.\d+\.\d+/)) {
+                        // Looks like a pool name, clear it
+                        $('#remote_address').val('');
+                    }
+                }
+            });
+
+            // Initialize form state
+            console.log('Create page loaded - Triggering initial change event');
+            $('#remote_address_type').trigger('change');
+            
+            // Check if we need to load pools on page load
+            const initialRouterId = $('#router_id').val();
+            const initialAddressType = $('#remote_address_type').val();
+            
+            console.log('Page loaded - Router:', initialRouterId, 'Type:', initialAddressType);
+            
+            if (initialRouterId && initialAddressType === 'pool') {
+                console.log('Loading pools on page load');
+                loadIPPools(initialRouterId);
+            }
+
+            // Remote Address Type Change
+            $('#remote_address_type').change(function() {
+                const selectedType = $(this).val();
+                
+                console.log('Address type changed to:', selectedType);
+                
+                if (selectedType === 'pool') {
+                    $('#remote_address_manual').hide();
+                    $('#ip_pool_section').show();
+                    $('#btn-refresh-pools').show();
+                    
+                    const routerId = $('#router_id').val();
+                    if (routerId) {
+                        console.log('Loading pools after type change');
+                        loadIPPools(routerId);
+                    } else {
+                        console.log('No router selected, cannot load pools');
+                    }
+                } else {
+                    $('#remote_address_manual').show();
+                    $('#ip_pool_section').hide();
+                    $('#btn-refresh-pools').hide();
+                }
+            });
+
+            // Router Selection Change
+            $('#router_id').change(function() {
+                const routerId = $(this).val();
+                const addressType = $('#remote_address_type').val();
+                
+                console.log('Router changed:', routerId, 'Address type:', addressType);
+                
+                if (routerId && addressType === 'pool') {
+                    console.log('Loading IP pools for router:', routerId);
+                    loadIPPools(routerId);
+                } else {
+                    // Reset dropdown if no router selected or type not pool
+                    const select = $('#remote_address_pool');
+                    select.empty().append('<option value="">Select IP Pool...</option>').prop('disabled', true);
+                }
+            });
+
+            // Refresh IP Pools
+            $('#btn-refresh-pools').click(function() {
+                const routerId = $('#router_id').val();
+                console.log('Refresh pools clicked, router:', routerId);
+                
+                if (routerId) {
+                    loadIPPools(routerId);
+                } else {
+                    console.log('Cannot refresh - no router selected');
+                    alert('Please select a router first');
+                }
+            });
+
+            // Add New Pool - Open Modal
+            $('#btn-add-pool').click(function() {
+                const routerId = $('#router_id').val();
+                if (!routerId) {
+                    alert('Please select a router first');
+                    return;
+                }
+                
+                $('#pool_router_id').val(routerId);
+                
+                // Reset modal to existing pools tab
+                $('#existing-pools-tab').tab('show');
+                $('#addPoolModal').modal('show');
+                
+                // Load existing pools
+                loadExistingPoolsFromMikrotik(routerId);
+            });
+
+            // Tab switching
+            $('#existing-pools-tab').on('shown.bs.tab', function() {
+                $('#save-pool-btn').hide();
+            });
+
+            $('#create-pool-tab').on('shown.bs.tab', function() {
+                $('#save-pool-btn').show();
+            });
+
+            // Refresh pools list
+            $('#refresh-pools-list').click(function() {
+                const routerId = $('#pool_router_id').val();
+                if (routerId) {
+                    loadExistingPoolsFromMikrotik(routerId);
+                }
+            });
+
+            // Save Pool
+            $('#save-pool-btn').click(function() {
+                const formData = $('#addPoolForm').serialize();
+                const btn = $(this);
+                const originalHtml = btn.html();
+                const routerId = $('#pool_router_id').val();
+                
+                btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Creating...');
+                
+                $.ajax({
+                    url: `{{ route('ppp-profiles.create-ip-pool') }}`,
+                    method: 'POST',
+                    data: formData,
+                    success: function(response) {
+                        if (response.success) {
+                            $('#addPoolForm')[0].reset();
+                            
+                            // Switch back to existing pools tab and refresh
+                            $('#existing-pools-tab').tab('show');
+                            loadExistingPoolsFromMikrotik(routerId);
+                            
+                            // Refresh the dropdown in main form
+                            loadIPPools($('#router_id').val());
+                            
+                            showToast('Pool Created', 'IP Pool created successfully!', 'success');
+                        } else {
+                            alert('Error: ' + response.message);
+                        }
+                    },
+                    error: function(xhr) {
+                        let message = 'Error creating IP Pool';
+                        if (xhr.responseJSON && xhr.responseJSON.message) {
+                            message = xhr.responseJSON.message;
+                        }
+                        alert(message);
+                    },
+                    complete: function() {
+                        btn.prop('disabled', false).html(originalHtml);
+                    }
+                });
+            });
+
+            // Select Pool from existing pools
+            $(document).on('click', '.pool-select-btn', function() {
+                const poolName = $(this).data('pool-name');
+                $('#remote_address_pool').val(poolName);
+                $('#remote_address_manual').val(poolName);
+                
+                // Close modal
+                $('#addPoolModal').modal('hide');
+                
+                // Show success message
+                showToast('Pool Selected', `IP Pool "${poolName}" has been selected`, 'success');
+            });
+
+            // Delete Pool
+            $(document).on('click', '.pool-delete-btn', function() {
+                const poolName = $(this).data('pool-name');
+                const poolId = $(this).data('pool-id');
+                
+                currentPoolToDelete = {
+                    name: poolName,
+                    id: poolId
+                };
+                
+                $('#delete-pool-name').text(poolName);
+                $('#deletePoolModal').modal('show');
+            });
+
+            // Confirm Delete Pool
+            $('#confirm-delete-pool').click(function() {
+                if (!currentPoolToDelete) return;
+                
+                const btn = $(this);
+                const originalHtml = btn.html();
+                
+                btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Deleting...');
+                
+                $.ajax({
+                    url: `{{ route('ppp-profiles.delete-ip-pool') }}`,
+                    method: 'POST',
+                    data: {
+                        _token: '{{ csrf_token() }}',
+                        router_id: $('#pool_router_id').val(),
+                        pool_name: currentPoolToDelete.name
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $('#deletePoolModal').modal('hide');
+                            
+                            // Refresh pools list
+                            loadExistingPoolsFromMikrotik($('#pool_router_id').val());
+                            
+                            // Refresh dropdown in main form
+                            loadIPPools($('#router_id').val());
+                            
+                            showToast('Pool Deleted', `IP Pool "${currentPoolToDelete.name}" has been deleted`, 'success');
+                        } else {
+                            alert('Error: ' + response.message);
+                        }
+                    },
+                    error: function(xhr) {
+                        let message = 'Error deleting IP Pool';
+                        if (xhr.responseJSON && xhr.responseJSON.message) {
+                            message = xhr.responseJSON.message;
+                        }
+                        alert(message);
+                    },
+                    complete: function() {
+                        btn.prop('disabled', false).html(originalHtml);
+                        currentPoolToDelete = null;
+                    }
+                });
+            });
+
+            // Pool selection change
+            $('#remote_address_pool').change(function() {
+                const selectedPool = $(this).val();
+                $('#remote_address_manual').val(selectedPool);
+            });
+
+            // Quick template buttons
+            $('input[name="template"]').change(function() {
+                const template = $(this).val();
+                
+                switch(template) {
+                    case 'basic':
+                        $('#rate_limit').val('512k/512k');
+                        break;
+                    case 'standard':
+                        $('#rate_limit').val('1M/1M');
+                        break;
+                    case 'premium':
+                        $('#rate_limit').val('2M/2M');
+                        break;
+                    case 'unlimited':
+                        $('#rate_limit').val('');
+                        break;
+                }
+            });
         });
 
-        // Quick templates
-        $('input[name="template"]').change(function() {
-            const template = $(this).val();
-            
-            switch(template) {
-                case 'basic':
-                    $('#rate_limit').val('512k/512k');
-                    $('#session_timeout').val('');
-                    $('#idle_timeout').val('300');
-                    $('#comment').val('Basic package - 512k up/down');
-                    break;
-                case 'standard':
-                    $('#rate_limit').val('1M/1M');
-                    $('#session_timeout').val('');
-                    $('#idle_timeout').val('600');
-                    $('#comment').val('Standard package - 1M up/down');
-                    break;
-                case 'premium':
-                    $('#rate_limit').val('2M/2M');
-                    $('#session_timeout').val('');
-                    $('#idle_timeout').val('900');
-                    $('#comment').val('Premium package - 2M up/down');
-                    break;
-                case 'unlimited':
-                    $('#rate_limit').val('');
-                    $('#session_timeout').val('0');
-                    $('#idle_timeout').val('0');
-                    $('#comment').val('Unlimited package - no restrictions');
-                    break;
-            }
-        });
-
-        // Form validation
-        $('#profileForm').submit(function(e) {
-            const name = $('#name').val();
-            const routerId = $('#router_id').val();
-            
-            if (!name || name.length < 2) {
-                alert('Profile name must be at least 2 characters');
-                e.preventDefault();
-                return false;
-            }
-            
+        function loadIPPools(routerId) {
             if (!routerId) {
-                alert('Please select a router');
-                e.preventDefault();
-                return false;
+                console.log('No router ID provided');
+                return;
             }
-        });
-    });
+            
+            console.log('Loading IP pools for router:', routerId);
+            const select = $('#remote_address_pool');
+            
+            // Show loading state
+            select.empty().append('<option value="">Loading pools...</option>').prop('disabled', true);
+            
+            $.ajax({
+                url: `{{ route('ppp-profiles.get-ip-pools') }}`,
+                method: 'POST',
+                data: {
+                    _token: '{{ csrf_token() }}',
+                    router_id: routerId
+                },
+                success: function(response) {
+                    console.log('IP pools response:', response);
+                    select.empty().append('<option value="">Select IP Pool...</option>');
+                    
+                    if (response.success && response.data && response.data.length > 0) {
+                        select.prop('disabled', false);
+                        response.data.forEach(function(pool) {
+                            // Create option text with pool name and ranges
+                            let optionText = pool.name;
+                            if (pool.ranges_string && pool.ranges_string.length > 0) {
+                                optionText += ` (${pool.ranges_string})`;
+                            }
+                            
+                            select.append(`<option value="${pool.name}">${optionText}</option>`);
+                        });
+                        console.log(`Loaded ${response.data.length} IP pools`);
+                    } else {
+                        select.prop('disabled', true);
+                        console.log('No IP pools found or response not successful');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('Error loading IP pools:', xhr.responseJSON || error);
+                    select.empty().append('<option value="">Error loading pools</option>').prop('disabled', true);
+                }
+            });
+        }
+
+        function loadExistingPoolsFromMikrotik(routerId) {
+            const tbody = $('#existing-pools-body');
+            const loadingDiv = $('#pools-loading');
+            
+            // Show loading
+            tbody.html('');
+            loadingDiv.show();
+            
+            $.ajax({
+                url: `{{ route('ppp-profiles.get-ip-pools') }}`,
+                method: 'POST',
+                data: {
+                    _token: '{{ csrf_token() }}',
+                    router_id: routerId
+                },
+                success: function(response) {
+                    loadingDiv.hide();
+                    tbody.empty();
+                    
+                    if (response.success && response.data.length > 0) {
+                        response.data.forEach(function(pool) {
+                            const rangesText = pool.ranges && pool.ranges.length > 0 
+                                ? pool.ranges.join('<br>') 
+                                : (pool.ranges_string || 'No ranges defined');
+                            
+                            const usedIPs = pool.used_ips || 0;
+                            const totalIPs = pool.total_ips || 0;
+                            const usageText = totalIPs > 0 ? `${usedIPs}/${totalIPs}` : '-';
+                            
+                            const usageClass = usedIPs > 0 ? 'text-warning' : 'text-muted';
+                            
+                            tbody.append(`
+                                <tr>
+                                    <td>
+                                        <strong>${pool.name}</strong>
+                                        ${pool.comment ? `<br><small class="text-muted">${pool.comment}</small>` : ''}
+                                    </td>
+                                    <td>
+                                        <small>${rangesText}</small>
+                                    </td>
+                                    <td class="${usageClass}">
+                                        <small>${usageText}</small>
+                                    </td>
+                                    <td class="text-center">
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-primary btn-sm pool-select-btn" 
+                                                    data-pool-name="${pool.name}"
+                                                    title="Select this pool">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-danger btn-sm pool-delete-btn" 
+                                                    data-pool-name="${pool.name}"
+                                                    data-pool-id="${pool.id || pool.name}"
+                                                    title="Delete this pool">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `);
+                        });
+                        });
+                    } else {
+                        tbody.append(`
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-4">
+                                    <i class="fas fa-info-circle"></i> No IP pools found on this router
+                                    <br><small>Click "Create New Pool" tab to add one</small>
+                                </td>
+                            </tr>
+                        `);
+                    }
+                },
+                error: function(xhr) {
+                    loadingDiv.hide();
+                    let message = 'Error loading IP pools';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        message = xhr.responseJSON.message;
+                    }
+                    
+                    tbody.html(`
+                        <tr>
+                            <td colspan="4" class="text-center text-danger py-4">
+                                <i class="fas fa-exclamation-triangle"></i> ${message}
+                                <br><button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="loadExistingPoolsFromMikrotik(${routerId})">
+                                    <i class="fas fa-redo"></i> Retry
+                                </button>
+                            </td>
+                        </tr>
+                    `);
+                }
+            });
+        }
+
+        function showToast(title, message, type) {
+            // Simple toast notification
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-info';
+            const iconClass = type === 'success' ? 'fa-check-circle' : 'fa-info-circle';
+            
+            const toast = $(`
+                <div class="alert ${alertClass} alert-dismissible fade show position-fixed" 
+                     style="top: 20px; right: 20px; z-index: 9999; min-width: 300px;">
+                    <i class="fas ${iconClass}"></i> <strong>${title}:</strong> ${message}
+                    <button type="button" class="close" data-dismiss="alert">
+                        <span>&times;</span>
+                    </button>
+                </div>
+            `);
+            
+            $('body').append(toast);
+            
+            // Auto remove after 3 seconds
+            setTimeout(() => {
+                toast.alert('close');
+            }, 3000);
+        }
     </script>
 @stop

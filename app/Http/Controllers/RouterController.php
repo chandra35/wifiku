@@ -22,7 +22,15 @@ class RouterController extends Controller
     public function __construct(MikrotikService $mikrotikService, BgpToolsService $bgpToolsService)
     {
         $this->middleware('auth');
-        $this->middleware('role:super_admin')->except(['getPingData']);
+        $this->middleware('role:super_admin')->except([
+            'getPingData', 
+            'show', 
+            'getSystemIdentity', 
+            'getSystemInfoApi', 
+            'getNetworkTraffic', 
+            'getGatewayTraffic', 
+            'getIspInfo'
+        ]);
         $this->mikrotikService = $mikrotikService;
         $this->bgpToolsService = $bgpToolsService;
     }

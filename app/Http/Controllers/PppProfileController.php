@@ -9,6 +9,7 @@ use App\Traits\HandlesMikrotikConnection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Exception;
 
 class PppProfileController extends Controller
 {
@@ -71,9 +72,102 @@ class PppProfileController extends Controller
     public function create()
     {
         $user = auth()->user();
-        $routers = $user->isSuperAdmin() ? Router::all() : $user->routers;
+        $routers = ($user->role && $user->role->name === 'super_admin') ? Router::all() : $user->routers;
         
         return view('ppp-profiles.create', compact('routers'));
+    }
+
+    /**
+     * Get IP pools from MikroTik router
+     */
+    public function getIpPools(Request $request)
+    {
+        $request->validate([
+            'router_id' => 'required|exists:routers,id'
+        ]);
+
+        $user = auth()->user();
+        $router = Router::findOrFail($request->router_id);
+        
+        // Check access permissions
+        if (!($user->role && $user->role->name === 'super_admin')) {
+            if (!$user->routers->contains($router->id)) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
+            }
+        }
+
+        $connected = $this->connectToMikrotik($router);
+
+        if (!$connected) {
+            return response()->json(['success' => false, 'message' => 'Failed to connect to router.']);
+        }
+
+        $result = $this->mikrotikService->getIpPools();
+
+        return response()->json($result);
+    }
+
+    /**
+     * Create new IP pool in MikroTik router
+     */
+    public function createIpPool(Request $request)
+    {
+        $request->validate([
+            'router_id' => 'required|exists:routers,id',
+            'name' => 'required|string|max:255',
+            'ranges' => 'required|string|max:255'
+        ]);
+
+        $user = auth()->user();
+        $router = Router::findOrFail($request->router_id);
+        
+        // Check access permissions
+        if (!($user->role && $user->role->name === 'super_admin')) {
+            if (!$user->routers->contains($router->id)) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
+            }
+        }
+
+        $connected = $this->connectToMikrotik($router);
+
+        if (!$connected) {
+            return response()->json(['success' => false, 'message' => 'Failed to connect to router.']);
+        }
+
+        $result = $this->mikrotikService->createIpPool($request->name, $request->ranges);
+
+        return response()->json($result);
+    }
+
+    /**
+     * Delete IP pool from MikroTik router
+     */
+    public function deleteIpPool(Request $request)
+    {
+        $request->validate([
+            'router_id' => 'required|exists:routers,id',
+            'pool_name' => 'required|string|max:255'
+        ]);
+
+        $user = auth()->user();
+        $router = Router::findOrFail($request->router_id);
+        
+        // Check access permissions
+        if (!($user->role && $user->role->name === 'super_admin')) {
+            if (!$user->routers->contains($router->id)) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
+            }
+        }
+
+        $connected = $this->connectToMikrotik($router);
+
+        if (!$connected) {
+            return response()->json(['success' => false, 'message' => 'Failed to connect to router.']);
+        }
+
+        $result = $this->mikrotikService->deleteIpPool($request->pool_name);
+
+        return response()->json($result);
     }
 
     /**
@@ -98,7 +192,7 @@ class PppProfileController extends Controller
         $router = Router::findOrFail($request->router_id);
         
         // Check access permissions
-        if (!$user->isSuperAdmin()) {
+        if (!($user->role && $user->role->name === 'super_admin')) {
             if (!$user->routers->contains($router->id)) {
                 return redirect()->back()->withErrors(['router_id' => 'Unauthorized access to this router.']);
             }
@@ -139,7 +233,7 @@ class PppProfileController extends Controller
         $user = auth()->user();
         
         // Check access permissions
-        if (!$user->isSuperAdmin()) {
+        if (!($user->role && $user->role->name === 'super_admin')) {
             if (!$user->routers->contains($pppProfile->router_id)) {
                 abort(403, 'Unauthorized access.');
             }
@@ -156,13 +250,13 @@ class PppProfileController extends Controller
         $user = auth()->user();
         
         // Check access permissions
-        if (!$user->isSuperAdmin()) {
+        if (!($user->role && $user->role->name === 'super_admin')) {
             if (!$user->routers->contains($pppProfile->router_id)) {
                 abort(403, 'Unauthorized access.');
             }
         }
 
-        $routers = $user->isSuperAdmin() ? Router::all() : $user->routers;
+        $routers = ($user->role && $user->role->name === 'super_admin') ? Router::all() : $user->routers;
         
         return view('ppp-profiles.edit', compact('pppProfile', 'routers'));
     }
@@ -173,8 +267,6 @@ class PppProfileController extends Controller
     public function update(Request $request, PppProfile $pppProfile)
     {
         $request->validate([
-            'name' => 'required|string|max:255',
-            'router_id' => 'required|exists:routers,id',
             'local_address' => 'nullable|string|max:255',
             'remote_address' => 'nullable|string|max:255',
             'dns_server' => 'nullable|string|max:255',
@@ -186,28 +278,19 @@ class PppProfileController extends Controller
         ]);
 
         $user = auth()->user();
-        $router = Router::findOrFail($request->router_id);
         
         // Check access permissions
-        if (!$user->isSuperAdmin()) {
-            if (!$user->routers->contains($pppProfile->router_id) || !$user->routers->contains($router->id)) {
+        if (!($user->role && $user->role->name === 'super_admin')) {
+            if (!$user->routers->contains($pppProfile->router_id)) {
                 abort(403, 'Unauthorized access.');
             }
         }
 
-        // Check if profile name already exists for this router (excluding current profile)
-        $existingProfile = PppProfile::where('router_id', $router->id)
-            ->where('name', $request->name)
-            ->where('id', '!=', $pppProfile->id)
-            ->first();
+        // Store old values for comparison
+        $oldValues = $pppProfile->toArray();
 
-        if ($existingProfile) {
-            return redirect()->back()->withErrors(['name' => 'Profile name already exists for this router.'])->withInput();
-        }
-
+        // Update the profile in database
         $pppProfile->update([
-            'name' => $request->name,
-            'router_id' => $request->router_id,
             'local_address' => $request->local_address,
             'remote_address' => $request->remote_address,
             'dns_server' => $request->dns_server,
@@ -218,8 +301,95 @@ class PppProfileController extends Controller
             'comment' => $request->comment,
         ]);
 
+        // If profile is synced to MikroTik, update it there too
+        if ($pppProfile->mikrotik_id) {
+            $router = $pppProfile->router;
+            $connected = $this->connectToMikrotik($router);
+            
+            if ($connected) {
+                try {
+                    // Prepare update data
+                    $updateData = [
+                        'local-address' => $pppProfile->local_address,
+                        'remote-address' => $pppProfile->remote_address,
+                        'dns-server' => $pppProfile->dns_server,
+                        'rate-limit' => $pppProfile->rate_limit,
+                        'session-timeout' => $pppProfile->session_timeout,
+                        'idle-timeout' => $pppProfile->idle_timeout,
+                        'only-one' => $pppProfile->only_one ? 'yes' : 'no',
+                        'comment' => $pppProfile->comment,
+                    ];
+                    
+                    // Remove null values
+                    $updateData = array_filter($updateData, function($value) {
+                        return $value !== null && $value !== '';
+                    });
+                    
+                    // Update the profile in MikroTik
+                    $result = $this->mikrotikService->updatePppProfile(
+                        $pppProfile->mikrotik_id,
+                        $updateData
+                    );
+                    
+                    if (!$result['success']) {
+                        // Log the error but don't fail the update
+                        Log::warning('Failed to update PPP profile in MikroTik', [
+                            'profile_id' => $pppProfile->id,
+                            'error' => $result['message']
+                        ]);
+                        
+                        // Return JSON response for AJAX
+                        if ($request->ajax() || $request->wantsJson()) {
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'PPP Profile updated in database but failed to sync to MikroTik: ' . $result['message']
+                            ]);
+                        }
+                        
+                        return redirect()->route('ppp-profiles.index')
+                            ->with('warning', 'PPP Profile updated in database but failed to sync to MikroTik: ' . $result['message']);
+                    }
+                } catch (Exception $e) {
+                    Log::error('Exception updating PPP profile in MikroTik', [
+                        'profile_id' => $pppProfile->id,
+                        'error' => $e->getMessage()
+                    ]);
+                    
+                    // Return JSON response for AJAX
+                    if ($request->ajax() || $request->wantsJson()) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'PPP Profile updated in database but failed to sync to MikroTik.'
+                        ]);
+                    }
+                    
+                    return redirect()->route('ppp-profiles.index')
+                        ->with('warning', 'PPP Profile updated in database but failed to sync to MikroTik.');
+                }
+            } else {
+                // Return JSON response for AJAX
+                if ($request->ajax() || $request->wantsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'PPP Profile updated in database but could not connect to MikroTik router.'
+                    ]);
+                }
+                
+                return redirect()->route('ppp-profiles.index')
+                    ->with('warning', 'PPP Profile updated in database but could not connect to MikroTik router.');
+            }
+        }
+
+        // Return JSON response for AJAX
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'PPP Profile updated successfully' . ($pppProfile->mikrotik_id ? ' and synced to MikroTik.' : '.')
+            ]);
+        }
+
         return redirect()->route('ppp-profiles.index')
-            ->with('success', 'PPP Profile updated successfully.');
+            ->with('success', 'PPP Profile updated successfully' . ($pppProfile->mikrotik_id ? ' and synced to MikroTik.' : '.'));
     }
 
     /**
@@ -230,7 +400,7 @@ class PppProfileController extends Controller
         $user = auth()->user();
         
         // Check access permissions
-        if (!$user->isSuperAdmin()) {
+        if (!($user->role && $user->role->name === 'super_admin')) {
             if (!$user->routers->contains($pppProfile->router_id)) {
                 return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
             }
@@ -252,7 +422,7 @@ class PppProfileController extends Controller
         $user = auth()->user();
         
         // Check access permissions
-        if (!$user->isSuperAdmin()) {
+        if (!($user->role && $user->role->name === 'super_admin')) {
             if (!$user->routers->contains($pppProfile->router_id)) {
                 return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
             }
@@ -265,67 +435,85 @@ class PppProfileController extends Controller
         }
 
         try {
-            $client = $this->mikrotikService->getClient();
+            Log::info('Starting PPP Profile sync to MikroTik', [
+                'profile_id' => $pppProfile->id,
+                'profile_name' => $pppProfile->name,
+                'current_mikrotik_id' => $pppProfile->mikrotik_id
+            ]);
+
+            // Use MikroTik service to sync the profile
+            $result = $this->mikrotikService->syncPppProfile($pppProfile->toArray());
             
-            // Prepare profile data for MikroTik
-            $profileData = [
-                'name' => $pppProfile->name,
-            ];
+            Log::info('PPP Profile sync result', [
+                'profile_id' => $pppProfile->id,
+                'sync_result' => $result
+            ]);
+            
+            if ($result['success']) {
+                // Always update mikrotik_id if returned from sync
+                if (isset($result['id']) && $result['id']) {
+                    Log::info('Updating profile with MikroTik ID', [
+                        'profile_id' => $pppProfile->id,
+                        'old_mikrotik_id' => $pppProfile->mikrotik_id,
+                        'new_mikrotik_id' => $result['id']
+                    ]);
 
-            if ($pppProfile->local_address) {
-                $profileData['local-address'] = $pppProfile->local_address;
-            }
-            if ($pppProfile->remote_address) {
-                $profileData['remote-address'] = $pppProfile->remote_address;
-            }
-            if ($pppProfile->dns_server) {
-                $profileData['dns-server'] = $pppProfile->dns_server;
-            }
-            if ($pppProfile->rate_limit) {
-                $profileData['rate-limit'] = $pppProfile->rate_limit;
-            }
-            if ($pppProfile->session_timeout) {
-                $profileData['session-timeout'] = $pppProfile->session_timeout;
-            }
-            if ($pppProfile->idle_timeout) {
-                $profileData['idle-timeout'] = $pppProfile->idle_timeout;
-            }
-            if ($pppProfile->only_one) {
-                $profileData['only-one'] = 'yes';
-            }
-            if ($pppProfile->comment) {
-                $profileData['comment'] = $pppProfile->comment;
-            }
-
-            // Check if profile exists in MikroTik
-            if ($pppProfile->mikrotik_id) {
-                // Update existing profile
-                $query = $client->query('/ppp/profile/set');
-                $query->where('.id', $pppProfile->mikrotik_id);
-                foreach ($profileData as $key => $value) {
-                    if ($key !== 'name') { // Don't update name
-                        $query->where($key, $value);
+                    $pppProfile->update(['mikrotik_id' => $result['id']]);
+                    
+                    // Refresh the model to get updated data
+                    $pppProfile->refresh();
+                    
+                    Log::info('Profile updated successfully', [
+                        'profile_id' => $pppProfile->id,
+                        'updated_mikrotik_id' => $pppProfile->mikrotik_id
+                    ]);
+                } else {
+                    Log::warning('Sync successful but no MikroTik ID returned', [
+                        'profile_id' => $pppProfile->id,
+                        'result' => $result
+                    ]);
+                    
+                    // Try to find the profile in MikroTik manually
+                    try {
+                        $profiles = $this->mikrotikService->getPppProfiles();
+                        if ($profiles['success']) {
+                            foreach ($profiles['data'] as $profile) {
+                                if (isset($profile['name']) && $profile['name'] === $pppProfile->name) {
+                                    $mikrotikId = $profile['.id'];
+                                    $pppProfile->update(['mikrotik_id' => $mikrotikId]);
+                                    $pppProfile->refresh();
+                                    
+                                    Log::info('Found and updated MikroTik ID manually', [
+                                        'profile_id' => $pppProfile->id,
+                                        'mikrotik_id' => $mikrotikId
+                                    ]);
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        Log::error('Failed to manually search for MikroTik ID', [
+                            'error' => $e->getMessage()
+                        ]);
                     }
                 }
-                $client->query($query)->read();
-            } else {
-                // Add new profile
-                $query = $client->query('/ppp/profile/add');
-                foreach ($profileData as $key => $value) {
-                    $query->where($key, $value);
-                }
-                $response = $client->query($query)->read();
                 
-                // Update mikrotik_id if returned
-                if (isset($response[0]['ret'])) {
-                    $pppProfile->update(['mikrotik_id' => $response[0]['ret']]);
-                }
-            }
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Profile synced to MikroTik successfully.',
+                    'profile' => $pppProfile // Return updated profile data
+                ]);
+            } else {
+                Log::error('PPP Profile sync failed', [
+                    'profile_id' => $pppProfile->id,
+                    'error_message' => $result['message'] ?? 'Unknown error'
+                ]);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Profile synced to MikroTik successfully.'
-            ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => $result['message'] ?? 'Failed to sync profile to MikroTik.'
+                ]);
+            }
 
         } catch (\Exception $e) {
             Log::error('Error syncing profile to MikroTik: ' . $e->getMessage());
@@ -349,7 +537,7 @@ class PppProfileController extends Controller
         $router = Router::findOrFail($request->router_id);
         
         // Check access permissions
-        if (!$user->isSuperAdmin()) {
+        if (!($user->role && $user->role->name === 'super_admin')) {
             if (!$user->routers->contains($router->id)) {
                 return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
             }
@@ -458,7 +646,7 @@ class PppProfileController extends Controller
         $router = Router::findOrFail($request->router_id);
         
         // Check access permissions
-        if (!$user->isSuperAdmin()) {
+        if (!($user->role && $user->role->name === 'super_admin')) {
             if (!$user->routers->contains($router->id)) {
                 return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
             }
@@ -586,7 +774,7 @@ class PppProfileController extends Controller
         $router = Router::findOrFail($request->router_id);
         
         // Check access permissions
-        if (!$user->isSuperAdmin()) {
+        if (!($user->role && $user->role->name === 'super_admin')) {
             if (!$user->routers->contains($router->id)) {
                 return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
             }

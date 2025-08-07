@@ -2,6 +2,10 @@
 
 @section('title', 'Router Details')
 
+@section('adminlte_css_pre')
+<meta name="csrf-token" content="{{ csrf_token() }}">
+@stop
+
 @section('content_header')
     <div class="row mb-2">
         <div class="col-sm-6">
@@ -344,6 +348,20 @@
 @section('js')
 <script>
 $(document).ready(function() {
+    // Check if user is authenticated
+    @guest
+        console.log('User not authenticated, redirecting to login...');
+        window.location.href = '{{ route("login") }}';
+        return;
+    @endguest
+    
+    // Setup CSRF token for all AJAX requests
+    $.ajaxSetup({
+        headers: {
+            'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+        }
+    });
+    
     // Auto-refresh system identity and connection status
     function updateSystemIdentity() {
         var routerId = $('.system-identity').data('router-id');

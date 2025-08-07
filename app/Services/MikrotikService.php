@@ -920,6 +920,187 @@ class MikrotikService
     }
 
     /**
+     * Get IP pools from MikroTik
+     */
+    public function getIpPools(): array
+    {
+        try {
+            if (!$this->client) {
+                return [
+                    'success' => false,
+                    'message' => 'Not connected to router',
+                    'data' => []
+                ];
+            }
+
+            $query = new Query('/ip/pool/print');
+            $response = $this->client->query($query)->read();
+
+            // Log raw response for debugging
+            Log::info('Raw IP pools response: ' . json_encode($response));
+
+            // Process the response to ensure consistent structure
+            $processedData = [];
+            foreach ($response as $pool) {
+                // Get ranges - MikroTik sometimes uses 'ranges' or 'range'
+                $ranges = $pool['ranges'] ?? $pool['range'] ?? '';
+                
+                // If ranges is still empty, try to construct from individual range fields
+                if (empty($ranges)) {
+                    $rangeArray = [];
+                    // Check for numbered range fields (range0, range1, etc.)
+                    for ($i = 0; $i < 10; $i++) {
+                        $rangeKey = 'range' . $i;
+                        if (isset($pool[$rangeKey]) && !empty($pool[$rangeKey])) {
+                            $rangeArray[] = $pool[$rangeKey];
+                        }
+                    }
+                    $ranges = implode(',', $rangeArray);
+                }
+                
+                // Convert ranges to array if it's a string
+                $rangesArray = [];
+                if (!empty($ranges)) {
+                    if (is_string($ranges)) {
+                        $rangesArray = array_map('trim', explode(',', $ranges));
+                    } elseif (is_array($ranges)) {
+                        $rangesArray = $ranges;
+                    }
+                }
+
+                $processedData[] = [
+                    'name' => $pool['name'] ?? 'Unknown',
+                    'ranges' => $rangesArray,
+                    'ranges_string' => implode(', ', $rangesArray),
+                    'id' => $pool['.id'] ?? null,
+                    'comment' => $pool['comment'] ?? '',
+                    'used_ips' => $pool['used'] ?? 0,
+                    'total_ips' => $pool['total'] ?? 0
+                ];
+            }
+
+            return [
+                'success' => true,
+                'message' => 'IP pools retrieved successfully',
+                'data' => $processedData
+            ];
+        } catch (Exception $e) {
+            Log::error('Failed to get IP pools: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'data' => []
+            ];
+        }
+    }
+
+    /**
+     * Create IP pool in MikroTik
+     */
+    public function createIpPool($name, $ranges): array
+    {
+        try {
+            if (!$this->client) {
+                return [
+                    'success' => false,
+                    'message' => 'Not connected to router',
+                    'data' => null
+                ];
+            }
+
+            $query = new Query('/ip/pool/add');
+            $query->equal('name', $name);
+            $query->equal('ranges', $ranges);
+
+            $response = $this->client->query($query)->read();
+
+            return [
+                'success' => true,
+                'message' => 'IP pool created successfully',
+                'data' => $response
+            ];
+        } catch (Exception $e) {
+            Log::error('Failed to create IP pool: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'data' => null
+            ];
+        }
+    }
+
+    /**
+     * Delete IP pool from MikroTik
+     */
+    public function deleteIpPool($name): array
+    {
+        try {
+            if (!$this->client) {
+                return [
+                    'success' => false,
+                    'message' => 'Not connected to router',
+                    'data' => null
+                ];
+            }
+
+            // First, get all pools to find the one with matching name
+            $query = new Query('/ip/pool/print');
+            $pools = $this->client->query($query)->read();
+
+            Log::info('All pools from router for deletion: ' . json_encode($pools));
+
+            $poolToDelete = null;
+            foreach ($pools as $pool) {
+                $poolName = $pool['name'] ?? null;
+                if ($poolName === $name) {
+                    $poolToDelete = $pool;
+                    break;
+                }
+            }
+
+            if (!$poolToDelete || !isset($poolToDelete['.id'])) {
+                // Log available pools for debugging
+                $availablePools = [];
+                foreach ($pools as $pool) {
+                    if (isset($pool['name'])) {
+                        $availablePools[] = $pool['name'];
+                    }
+                }
+                
+                Log::warning("IP pool '{$name}' not found. Available pools: " . implode(', ', $availablePools));
+                
+                return [
+                    'success' => false,
+                    'message' => "IP pool '{$name}' not found on router. Available pools: " . implode(', ', $availablePools),
+                    'data' => null
+                ];
+            }
+
+            // Delete the pool using its ID
+            $poolId = $poolToDelete['.id'];
+            $query = new Query('/ip/pool/remove');
+            $query->equal('.id', $poolId);
+
+            $this->client->query($query)->read();
+
+            Log::info("Successfully deleted IP pool '{$name}' with ID '{$poolId}'");
+
+            return [
+                'success' => true,
+                'message' => 'IP pool deleted successfully',
+                'data' => null
+            ];
+        } catch (Exception $e) {
+            Log::error('Failed to delete IP pool: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'data' => null
+            ];
+        }
+    }
+
+    /**
      * Get gateway interface traffic information
      */
     public function getGatewayTraffic(): array
@@ -1083,6 +1264,180 @@ class MikrotikService
             return [
                 'success' => false,
                 'message' => 'Error: ' . $e->getMessage(),
+                'data' => null
+            ];
+        }
+    }
+
+    /**
+     * Sync PPP Profile to MikroTik
+     */
+    public function syncPppProfile($profileData): array
+    {
+        try {
+            Log::info('Starting PPP Profile sync', [
+                'profile_name' => $profileData['name'] ?? 'Unknown',
+                'profile_id' => $profileData['id'] ?? 'Unknown',
+                'mikrotik_id' => $profileData['mikrotik_id'] ?? 'None'
+            ]);
+
+            if (!$this->client) {
+                Log::error('PPP Profile sync failed: Not connected to router');
+                return [
+                    'success' => false,
+                    'message' => 'Not connected to router',
+                    'data' => null
+                ];
+            }
+
+            // Prepare profile data for MikroTik format
+            $mikrotikData = [
+                'name' => $profileData['name'],
+            ];
+
+            if (!empty($profileData['local_address'])) {
+                $mikrotikData['local-address'] = $profileData['local_address'];
+            }
+            if (!empty($profileData['remote_address'])) {
+                $mikrotikData['remote-address'] = $profileData['remote_address'];
+            }
+            if (!empty($profileData['dns_server'])) {
+                $mikrotikData['dns-server'] = $profileData['dns_server'];
+            }
+            if (!empty($profileData['rate_limit'])) {
+                $mikrotikData['rate-limit'] = $profileData['rate_limit'];
+            }
+            if (!empty($profileData['session_timeout'])) {
+                $mikrotikData['session-timeout'] = $profileData['session_timeout'];
+            }
+            if (!empty($profileData['idle_timeout'])) {
+                $mikrotikData['idle-timeout'] = $profileData['idle_timeout'];
+            }
+            if (!empty($profileData['only_one'])) {
+                $mikrotikData['only-one'] = 'yes';
+            }
+            if (!empty($profileData['comment'])) {
+                $mikrotikData['comment'] = $profileData['comment'];
+            }
+
+            Log::info('Prepared MikroTik data for sync', ['mikrotik_data' => $mikrotikData]);
+
+            // Check if profile exists in MikroTik
+            if (!empty($profileData['mikrotik_id'])) {
+                Log::info('Updating existing profile in MikroTik', ['mikrotik_id' => $profileData['mikrotik_id']]);
+                
+                // Update existing profile
+                $query = new Query('/ppp/profile/set');
+                $query->equal('.id', $profileData['mikrotik_id']);
+                foreach ($mikrotikData as $key => $value) {
+                    if ($key !== 'name') { // Don't update name
+                        $query->equal($key, $value);
+                    }
+                }
+                $response = $this->client->query($query)->read();
+                
+                Log::info('Profile updated successfully in MikroTik', [
+                    'mikrotik_id' => $profileData['mikrotik_id'],
+                    'response' => $response
+                ]);
+                
+                return [
+                    'success' => true,
+                    'message' => 'PPP Profile updated successfully',
+                    'id' => $profileData['mikrotik_id']
+                ];
+            } else {
+                Log::info('Adding new profile to MikroTik', ['profile_name' => $profileData['name']]);
+                
+                // First, check if profile already exists by name
+                $checkQuery = new Query('/ppp/profile/print');
+                $allProfiles = $this->client->query($checkQuery)->read();
+                
+                $existingProfile = null;
+                foreach ($allProfiles as $profile) {
+                    if (isset($profile['name']) && $profile['name'] === $profileData['name']) {
+                        $existingProfile = $profile;
+                        break;
+                    }
+                }
+                
+                if ($existingProfile) {
+                    Log::info('Profile already exists in MikroTik, updating it', [
+                        'profile_name' => $profileData['name'],
+                        'existing_id' => $existingProfile['.id']
+                    ]);
+                    
+                    // Update existing profile
+                    $updateQuery = new Query('/ppp/profile/set');
+                    $updateQuery->equal('.id', $existingProfile['.id']);
+                    foreach ($mikrotikData as $key => $value) {
+                        if ($key !== 'name') { // Don't update name
+                            $updateQuery->equal($key, $value);
+                        }
+                    }
+                    $this->client->query($updateQuery)->read();
+                    
+                    return [
+                        'success' => true,
+                        'message' => 'PPP Profile updated successfully',
+                        'id' => $existingProfile['.id']
+                    ];
+                } else {
+                    // Add new profile
+                    $query = new Query('/ppp/profile/add');
+                    foreach ($mikrotikData as $key => $value) {
+                        $query->equal($key, $value);
+                    }
+                    $response = $this->client->query($query)->read();
+                    
+                    Log::info('Profile added to MikroTik, searching for ID', [
+                        'add_response' => $response,
+                        'profile_name' => $profileData['name']
+                    ]);
+                    
+                    // Get the created profile ID by searching again
+                    $searchQuery = new Query('/ppp/profile/print');
+                    $allProfilesAfter = $this->client->query($searchQuery)->read();
+                    
+                    $newProfile = null;
+                    foreach ($allProfilesAfter as $profile) {
+                        if (isset($profile['name']) && $profile['name'] === $profileData['name']) {
+                            $newProfile = $profile;
+                            break;
+                        }
+                    }
+                    
+                    $mikrotikId = null;
+                    if ($newProfile && isset($newProfile['.id'])) {
+                        $mikrotikId = $newProfile['.id'];
+                        Log::info('Found MikroTik ID for new profile', [
+                            'profile_name' => $profileData['name'],
+                            'mikrotik_id' => $mikrotikId
+                        ]);
+                    } else {
+                        Log::warning('Could not find MikroTik ID for new profile', [
+                            'profile_name' => $profileData['name'],
+                            'all_profiles_count' => count($allProfilesAfter)
+                        ]);
+                    }
+                    
+                    return [
+                        'success' => true,
+                        'message' => 'PPP Profile created successfully',
+                        'id' => $mikrotikId
+                    ];
+                }
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Failed to sync PPP profile: ' . $e->getMessage(), [
+                'profile_name' => $profileData['name'] ?? 'Unknown',
+                'error_class' => get_class($e),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
                 'data' => null
             ];
         }

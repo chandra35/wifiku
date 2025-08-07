@@ -15,6 +15,45 @@
         border-radius: 0.25rem;
     }
     
+    /* Compact table styling */
+    .table-sm {
+        font-size: 0.875rem;
+    }
+    
+    .table-sm td {
+        padding: 0.5rem 0.25rem;
+        vertical-align: middle;
+    }
+    
+    .table-sm th {
+        padding: 0.75rem 0.25rem;
+        font-weight: 600;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    .badge-sm {
+        font-size: 0.65rem;
+        padding: 0.2em 0.4em;
+    }
+    
+    .btn-group-sm .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+    
+    /* Responsive text */
+    @media (max-width: 768px) {
+        .table-sm {
+            font-size: 0.8rem;
+        }
+        
+        .table-sm td {
+            padding: 0.25rem 0.1rem;
+        }
+    }
+    
     .sticky-top {
         position: sticky;
         top: 0;
@@ -177,97 +216,97 @@
         <div class="card-header">
             <h3 class="card-title">PPP Profiles List</h3>
         </div>
-        <div class="card-body table-responsive p-0">
-            <table class="table table-hover text-nowrap">
-                <thead>
-                    <tr>
-                        <th>Profile Name</th>
-                        <th>Router</th>
-                        <th>Local Address</th>
-                        <th>Remote Address</th>
-                        <th>Rate Limit</th>
-                        <th>Session Timeout</th>
-                        <th>Sync Status</th>
-                        @if(auth()->user()->isSuperAdmin())
-                            <th>Created By</th>
-                        @endif
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0">
+                    <thead class="bg-light">
+                        <tr>
+                            <th style="width: 15%;">Profile</th>
+                            <th style="width: 12%;">Router</th>
+                            <th style="width: 12%;" class="d-none d-md-table-cell">Local IP</th>
+                            <th style="width: 12%;" class="d-none d-lg-table-cell">Remote IP</th>
+                            <th style="width: 10%;" class="d-none d-lg-table-cell">Rate Limit</th>
+                            <th style="width: 8%;" class="text-center">Status</th>
+                            @if(auth()->user()->role && auth()->user()->role->name === 'super_admin')
+                                <th style="width: 10%;" class="d-none d-xl-table-cell">Created By</th>
+                            @endif
+                            <th style="width: 15%;" class="text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
                     @forelse($profiles as $profile)
                         <tr>
                             <td>
-                                <strong>{{ $profile->name }}</strong>
-                                @if($profile->only_one)
-                                    <br><small class="badge badge-warning">Only One</small>
-                                @endif
+                                <div class="d-flex flex-column">
+                                    <strong class="text-primary">{{ $profile->name }}</strong>
+                                    <div class="small text-muted">
+                                        @if($profile->only_one)
+                                            <span class="badge badge-warning badge-sm">Only One</span>
+                                        @endif
+                                        @if($profile->session_timeout)
+                                            <span class="badge badge-secondary badge-sm">{{ gmdate('H:i:s', $profile->session_timeout) }}</span>
+                                        @endif
+                                    </div>
+                                </div>
                             </td>
                             <td>
-                                <a href="{{ route('routers.show', $profile->router->id) }}" class="text-decoration-none">
-                                    {{ $profile->router->name }}
-                                </a>
-                                <br>
-                                <small class="text-muted">{{ $profile->router->ip_address }}</small>
+                                <div class="d-flex flex-column">
+                                    <strong>{{ $profile->router->name }}</strong>
+                                    <small class="text-muted">{{ $profile->router->ip_address }}</small>
+                                </div>
                             </td>
-                            <td>
+                            <td class="d-none d-md-table-cell">
                                 @if($profile->local_address)
-                                    <code>{{ $profile->local_address }}</code>
+                                    <code class="small">{{ $profile->local_address }}</code>
                                 @else
                                     <span class="text-muted">-</span>
                                 @endif
                             </td>
-                            <td>
+                            <td class="d-none d-lg-table-cell">
                                 @if($profile->remote_address)
-                                    <code>{{ $profile->remote_address }}</code>
+                                    <code class="small">{{ $profile->remote_address }}</code>
                                 @else
                                     <span class="text-muted">-</span>
                                 @endif
                             </td>
-                            <td>
+                            <td class="d-none d-lg-table-cell">
                                 @if($profile->rate_limit)
-                                    <span class="badge badge-info">{{ $profile->rate_limit }}</span>
+                                    <span class="badge badge-info badge-sm">{{ $profile->rate_limit }}</span>
                                 @else
                                     <span class="text-muted">-</span>
                                 @endif
                             </td>
-                            <td>
-                                @if($profile->session_timeout)
-                                    {{ gmdate('H:i:s', $profile->session_timeout) }}
-                                @else
-                                    <span class="text-muted">Unlimited</span>
-                                @endif
-                            </td>
-                            <td>
+                            <td class="text-center">
                                 @if($profile->mikrotik_id)
-                                    <span class="badge badge-success">
+                                    <span class="badge badge-success badge-sm">
                                         <i class="fas fa-link"></i> Synced
                                     </span>
                                 @else
-                                    <span class="badge badge-warning">
+                                    <span class="badge badge-warning badge-sm">
                                         <i class="fas fa-unlink"></i> Not Synced
                                     </span>
                                 @endif
                             </td>
-                            @if(auth()->user()->isSuperAdmin())
-                                <td>
+                            @if(auth()->user()->role && auth()->user()->role->name === 'super_admin')
+                                <td class="d-none d-xl-table-cell">
                                     @if($profile->createdBy)
-                                        {{ $profile->createdBy->name }}
-                                        <br>
-                                        <small class="text-muted">{{ $profile->created_at->format('d M Y') }}</small>
+                                        <div class="d-flex flex-column">
+                                            <span class="small">{{ $profile->createdBy->name }}</span>
+                                            <small class="text-muted">{{ $profile->created_at->format('d M Y') }}</small>
+                                        </div>
                                     @else
-                                        <span class="text-muted">Unknown</span>
+                                        <span class="text-muted small">Unknown</span>
                                     @endif
                                 </td>
                             @endif
-                            <td>
-                                <div class="btn-group">
+                            <td class="text-center">
+                                <div class="btn-group btn-group-sm">
                                     <a href="{{ route('ppp-profiles.show', $profile->id) }}" 
-                                       class="btn btn-sm btn-info" title="View Details">
+                                       class="btn btn-info btn-sm" title="View Details">
                                         <i class="fas fa-eye"></i>
                                     </a>
                                     <a href="{{ route('ppp-profiles.edit', $profile->id) }}" 
-                                       class="btn btn-sm btn-warning" title="Edit">
+                                       class="btn btn-warning btn-sm" title="Edit">
                                         <i class="fas fa-edit"></i>
                                     </a>
                                     <form action="{{ route('ppp-profiles.destroy', $profile->id) }}" 
@@ -275,14 +314,13 @@
                                           class="delete-profile-form" data-profile-name="{{ $profile->name }}">
                                         @csrf
                                         @method('DELETE')
-                                        <button type="button" class="btn btn-sm btn-danger delete-profile-btn" title="Delete">
+                                        <button type="button" class="btn btn-danger btn-sm delete-profile-btn" title="Delete">
                                             <i class="fas fa-trash"></i>
                                         </button>
                                     </form>
                                 </div>
                                 @if(!$profile->mikrotik_id)
-                                    <br>
-                                    <button class="btn btn-xs btn-success mt-1 sync-btn" 
+                                    <button class="btn btn-success btn-sm mt-1 sync-btn" 
                                             data-profile-id="{{ $profile->id }}" title="Sync to MikroTik">
                                         <i class="fas fa-sync"></i> Sync
                                     </button>
@@ -291,13 +329,14 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="{{ auth()->user()->isSuperAdmin() ? '9' : '8' }}" class="text-center text-muted">
+                            <td colspan="{{ (auth()->user()->role && auth()->user()->role->name === 'super_admin') ? '8' : '7' }}" class="text-center text-muted py-4">
                                 <i class="fas fa-info-circle"></i> No PPP profiles found
                             </td>
                         </tr>
                     @endforelse
                 </tbody>
-            </table>
+                </table>
+            </div>
         </div>
         @if($profiles->hasPages())
             <div class="card-footer">
@@ -434,6 +473,16 @@
     let selectedProfiles = [];
 
     $(document).ready(function() {
+        // Handle reload after sync success (using event delegation)
+        $(document).on('click', '#reloadAfterSync', function() {
+            location.reload();
+        });
+
+        // Also reload when success modal is hidden
+        $('#syncSuccessModal').on('hidden.bs.modal', function () {
+            location.reload();
+        });
+
         // Import Button Click - Start Import Process
         $('#importProfilesBtn').click(function() {
             resetImportModal();
@@ -502,19 +551,22 @@
                        .html('<i class="fas fa-check"></i> Synced')
                        .prop('disabled', true);
                     
-                    // Show success message
-                    $('<div class="alert alert-success alert-dismissible">' +
-                      '<button type="button" class="close" data-dismiss="alert">&times;</button>' +
-                      '<i class="fas fa-check"></i> ' + response.message +
-                      '</div>').prependTo('.content').delay(3000).fadeOut();
+                    // Update sync status badge in the table row
+                    const row = btn.closest('tr');
+                    const statusBadge = row.find('.badge');
+                    if (response.profile && response.profile.mikrotik_id) {
+                        statusBadge.removeClass('badge-warning').addClass('badge-success')
+                            .html('<i class="fas fa-link"></i> Synced');
+                    }
+                    
+                    // Show success modal
+                    $('#syncSuccessModal').modal('show');
                 } else {
                     btn.prop('disabled', false).html(originalText);
                     
-                    // Show error message
-                    $('<div class="alert alert-danger alert-dismissible">' +
-                      '<button type="button" class="close" data-dismiss="alert">&times;</button>' +
-                      '<i class="fas fa-times"></i> ' + response.message +
-                      '</div>').prependTo('.content').delay(3000).fadeOut();
+                    // Show error modal
+                    $('#syncErrorModalBody').text(response.message || 'Failed to sync profile to router');
+                    $('#syncErrorModal').modal('show');
                 }
             })
             .fail(function(xhr) {
@@ -522,12 +574,20 @@
                 const response = xhr.responseJSON;
                 const message = response && response.message ? response.message : 'Sync failed';
                 
-                $('<div class="alert alert-danger alert-dismissible">' +
-                  '<button type="button" class="close" data-dismiss="alert">&times;</button>' +
-                  '<i class="fas fa-times"></i> ' + message +
-                  '</div>').prependTo('.content').delay(3000).fadeOut();
+                $('#syncErrorModalBody').text(message);
+                $('#syncErrorModal').modal('show');
             });
         });
+    });
+
+    // Handle reload after sync success
+    $('#reloadAfterSync').click(function() {
+        location.reload();
+    });
+
+    // Also reload when success modal is hidden
+    $('#syncSuccessModal').on('hidden.bs.modal', function () {
+        location.reload();
     });
 
     function resetImportModal() {
@@ -809,8 +869,41 @@
                     }
                 });
                 
-                // Submit the form
-                form.submit();
+                // Submit via AJAX instead of form submit
+                $.ajax({
+                    url: form.attr('action'),
+                    type: 'POST',
+                    data: form.serialize(),
+                    headers: {
+                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                    },
+                    success: function(response) {
+                        Swal.fire({
+                            title: 'Berhasil!',
+                            text: response.message || 'PPP Profile berhasil dihapus.',
+                            icon: 'success',
+                            confirmButtonText: 'OK',
+                            confirmButtonColor: '#28a745'
+                        }).then(() => {
+                            // Reload page after success
+                            location.reload();
+                        });
+                    },
+                    error: function(xhr) {
+                        let errorMessage = 'Gagal menghapus PPP Profile.';
+                        if (xhr.responseJSON && xhr.responseJSON.message) {
+                            errorMessage = xhr.responseJSON.message;
+                        }
+                        
+                        Swal.fire({
+                            title: 'Error!',
+                            text: errorMessage,
+                            icon: 'error',
+                            confirmButtonText: 'OK',
+                            confirmButtonColor: '#dc3545'
+                        });
+                    }
+                });
             }
         });
     });
@@ -862,4 +955,60 @@
     background: #dc3545 !important;
 }
 </style>
+
+<!-- Sync Success Modal -->
+<div class="modal fade" id="syncSuccessModal" tabindex="-1" role="dialog" aria-labelledby="syncSuccessModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="syncSuccessModalLabel">
+                    <i class="fas fa-check-circle"></i> Sukses Synced Bro
+                </h5>
+                <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="mb-3">
+                    <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
+                </div>
+                <h4>Sukses Synced Bro!</h4>
+                <p class="text-muted">PPP profile berhasil disinkronisasi ke router MikroTik.</p>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-success" id="reloadAfterSync">
+                    <i class="fas fa-redo"></i> OK Lek
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sync Error Modal -->
+<div class="modal fade" id="syncErrorModal" tabindex="-1" role="dialog" aria-labelledby="syncErrorModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="syncErrorModalLabel">
+                    <i class="fas fa-exclamation-triangle"></i> Sync Failed
+                </h5>
+                <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="mb-3">
+                    <i class="fas fa-exclamation-triangle text-danger" style="font-size: 4rem;"></i>
+                </div>
+                <h4>Sync Failed</h4>
+                <p class="text-muted" id="syncErrorModalBody">Failed to sync profile to router.</p>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                    <i class="fas fa-times"></i> Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 @stop
