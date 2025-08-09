@@ -66,11 +66,26 @@
                             <select class="form-control @error('profile') is-invalid @enderror" 
                                     id="profile" name="profile">
                                 <option value="">Select Profile (Optional)</option>
-                                @if($pppoe->profile)
-                                    <option value="{{ $pppoe->profile }}" selected>{{ $pppoe->profile }}</option>
+                                @if(isset($profiles) && count($profiles) > 0)
+                                    @foreach($profiles as $profile)
+                                        <option value="{{ $profile['name'] }}" 
+                                                {{ old('profile', $pppoe->profile) == $profile['name'] ? 'selected' : '' }}>
+                                            {{ $profile['name'] }}
+                                        </option>
+                                    @endforeach
+                                @else
+                                    @if($pppoe->profile)
+                                        <option value="{{ $pppoe->profile }}" selected>{{ $pppoe->profile }}</option>
+                                    @endif
                                 @endif
                             </select>
-                            <small class="form-text text-muted">Change router to reload profiles</small>
+                            <small class="form-text text-muted">
+                                @if(isset($profiles) && count($profiles) > 0)
+                                    {{ count($profiles) }} profiles loaded from router
+                                @else
+                                    Change router to reload profiles
+                                @endif
+                            </small>
                             @error('profile')
                                 <span class="invalid-feedback">{{ $message }}</span>
                             @enderror

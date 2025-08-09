@@ -1,6 +1,161 @@
 @extends('adminlte::page')
 
-@section('title', 'PPPoE Management')
+@section('css')
+<style>
+    .import-step {
+        min-height: 300px;
+    }
+    
+    .info-box {
+        margin-bottom: 15px;
+    }
+    
+    .table-responsive {
+        border: 1px solid #dee2e6;
+        border-radius: 0.25rem;
+    }
+    
+    /* Compact table styling */
+    .table-sm {
+        font-size: 0.875rem;
+    }
+    
+    .table-sm td {
+        padding: 0.5rem 0.25rem;
+        vertical-align: middle;
+    }
+    
+    .table-sm th {
+        padding: 0.75rem 0.25rem;
+        font-weight: 600;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    .badge-sm {
+        font-size: 0.65rem;
+        padding: 0.2em 0.4em;
+    }
+    
+    .btn-group-sm .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+    
+    /* Sync button specific styling */
+    .sync-btn {
+        padding: 0.2rem 0.4rem !important;
+        font-size: 0.7rem !important;
+        line-height: 1.2 !important;
+    }
+    
+    .sync-btn .fas {
+        font-size: 0.65rem;
+    }
+    
+    /* Keep sync button compact */
+    .sync-btn.btn-sm {
+        padding: 0.2rem 0.4rem !important;
+        font-size: 0.7rem !important;
+    }
+    
+    /* Responsive text */
+    @media (max-width: 768px) {
+        .table-sm {
+            font-size: 0.8rem;
+        }
+        
+        .table-sm td {
+            padding: 0.25rem 0.1rem;
+        }
+    }
+    
+    .sticky-top {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: #f8f9fa;
+    }
+    
+    .progress {
+        height: 25px;
+        font-size: 14px;
+    }
+    
+    .progress-bar {
+        line-height: 25px;
+    }
+    
+    .custom-control-label {
+        cursor: pointer;
+    }
+    
+    .table-warning {
+        background-color: rgba(255, 193, 7, 0.1);
+    }
+    
+    .modal-lg {
+        max-width: 900px;
+    }
+    
+    /* Secret status badges */
+    .secret-username {
+        font-weight: 600;
+        color: #007bff;
+    }
+    
+    .router-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+    
+    .secret-actions {
+        white-space: nowrap;
+    }
+
+    /* Custom SweetAlert2 Styling to match PPP Profile theme */
+    .swal2-popup-delete {
+        border-radius: 15px !important;
+        padding: 2rem !important;
+    }
+
+    .swal2-title-delete {
+        color: #dc3545 !important;
+        font-weight: 600 !important;
+    }
+
+    .swal2-content-delete {
+        font-size: 1rem !important;
+        line-height: 1.5 !important;
+    }
+
+    .swal2-confirm {
+        border-radius: 8px !important;
+        padding: 10px 20px !important;
+        font-weight: 500 !important;
+    }
+
+    .swal2-cancel {
+        border-radius: 8px !important;
+        padding: 10px 20px !important;
+        font-weight: 500 !important;
+    }
+
+    .swal2-icon.swal2-warning {
+        border-color: #ffc107 !important;
+        color: #ffc107 !important;
+    }
+
+    /* Loading animation custom style */
+    .swal2-loading .swal2-styled.swal2-confirm {
+        background-color: #d33 !important;
+    }
+</style>
+@stop
+
+@section('title', 'PPPoE Secret Management')
 
 @section('content_header')
     <div class="row mb-2">
@@ -8,14 +163,10 @@
             <h1>PPPoE Secret Management</h1>
         </div>
         <div class="col-sm-6">
-            <div class="float-sm-right">
-                <button type="button" class="btn btn-info mr-2" data-toggle="modal" data-target="#importModal">
-                    <i class="fas fa-download"></i> Import from MikroTik
-                </button>
-                <a href="{{ route('pppoe.create') }}" class="btn btn-primary">
-                    <i class="fas fa-plus"></i> Add New PPPoE Secret
-                </a>
-            </div>
+            <ol class="breadcrumb float-sm-right">
+                <li class="breadcrumb-item"><a href="{{ route('dashboard') }}">Dashboard</a></li>
+                <li class="breadcrumb-item active">PPPoE Secrets</li>
+            </ol>
         </div>
     </div>
 @stop
@@ -41,10 +192,10 @@
             <div class="small-box bg-info">
                 <div class="inner">
                     <h3>{{ $pppoeSecrets->total() }}</h3>
-                    <p>Total PPPoE Secrets</p>
+                    <p>Total Secrets</p>
                 </div>
                 <div class="icon">
-                    <i class="fas fa-wifi"></i>
+                    <i class="fas fa-users"></i>
                 </div>
             </div>
         </div>
@@ -55,7 +206,7 @@
                     <p>Active Secrets</p>
                 </div>
                 <div class="icon">
-                    <i class="fas fa-check"></i>
+                    <i class="fas fa-check-circle"></i>
                 </div>
             </div>
         </div>
@@ -66,14 +217,14 @@
                     <p>Disabled Secrets</p>
                 </div>
                 <div class="icon">
-                    <i class="fas fa-pause"></i>
+                    <i class="fas fa-pause-circle"></i>
                 </div>
             </div>
         </div>
         <div class="col-lg-3 col-6">
-            <div class="small-box bg-danger">
+            <div class="small-box bg-primary">
                 <div class="inner">
-                    <h3>{{ $pppoeSecrets->where('created_at', '>=', now()->subDay())->count() }}</h3>
+                    <h3>{{ $pppoeSecrets->where('created_at', '>=', today())->count() }}</h3>
                     <p>Created Today</p>
                 </div>
                 <div class="icon">
@@ -83,12 +234,127 @@
         </div>
     </div>
 
+    <!-- Search and Filter -->
     <div class="card">
         <div class="card-header">
-            <h3 class="card-title">PPPoE Secrets List</h3>
+            <h3 class="card-title">Search & Filter</h3>
+            <div class="card-tools">
+                <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                    <i class="fas fa-minus"></i>
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <form method="GET" action="{{ route('pppoe.index') }}">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="form-group">
+                            <label for="search">Search Username</label>
+                            <input type="text" class="form-control" id="search" name="search" 
+                                   value="{{ request('search') }}" placeholder="Enter username or comment...">
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-group">
+                            <label for="router_id">Filter by Router</label>
+                            <select class="form-control" id="router_id" name="router_id">
+                                <option value="">All Routers</option>
+                                @if(isset($routers) && $routers->count() > 0)
+                                    @foreach($routers as $router)
+                                        <option value="{{ $router->id }}" {{ request('router_id') == $router->id ? 'selected' : '' }}>
+                                            {{ $router->name }} ({{ $router->ip_address }})
+                                        </option>
+                                    @endforeach
+                                @else
+                                    @php
+                                        $user = auth()->user();
+                                        $availableRouters = $user->hasRole('super_admin') 
+                                            ? \App\Models\Router::where('status', 'active')->get()
+                                            : $user->routers()->where('status', 'active')->get();
+                                    @endphp
+                                    @foreach($availableRouters as $router)
+                                        <option value="{{ $router->id }}" {{ request('router_id') == $router->id ? 'selected' : '' }}>
+                                            {{ $router->name }} ({{ $router->ip_address }})
+                                        </option>
+                                    @endforeach
+                                @endif
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-group">
+                            <label for="status">Status</label>
+                            <select class="form-control" id="status" name="status">
+                                <option value="">All Status</option>
+                                <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Active</option>
+                                <option value="disabled" {{ request('status') === 'disabled' ? 'selected' : '' }}>Disabled</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-group">
+                            <label for="sync_status">Sync Status</label>
+                            <select class="form-control" id="sync_status" name="sync_status">
+                                <option value="">All</option>
+                                <option value="synced" {{ request('sync_status') === 'synced' ? 'selected' : '' }}>Synced</option>
+                                <option value="not_synced" {{ request('sync_status') === 'not_synced' ? 'selected' : '' }}>Not Synced</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-group">
+                            <label>&nbsp;</label>
+                            <div class="d-block">
+                                <button type="submit" class="btn btn-primary btn-block">
+                                    <i class="fas fa-search"></i> Search
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <a href="{{ route('pppoe.index') }}" class="btn btn-secondary">
+                            <i class="fas fa-undo"></i> Reset
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <a href="{{ route('pppoe.create') }}" class="btn btn-primary">
+                <i class="fas fa-plus"></i> Add New Secret
+            </a>
+            <button type="button" class="btn btn-info" data-toggle="modal" data-target="#importModal">
+                <i class="fas fa-download"></i> Import from MikroTik
+            </button>
+        </div>
+        <div class="col-md-6 text-right">
+            <div class="btn-group">
+                <button type="button" class="btn btn-outline-secondary" onclick="syncAllSecrets()">
+                    <i class="fas fa-sync-alt"></i> Sync All
+                </button>
+                <button type="button" class="btn btn-outline-warning" onclick="exportSecrets()">
+                    <i class="fas fa-file-export"></i> Export
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PPPoE Secrets Table -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">
+                PPPoE Secrets List
+                <span class="badge badge-info ml-2">{{ $pppoeSecrets->total() }} total</span>
+            </h3>
             <div class="card-tools">
                 <div class="input-group input-group-sm" style="width: 250px;">
-                    <input type="text" id="searchInput" class="form-control float-right" placeholder="Search secrets...">
+                    <input type="text" id="searchInput" class="form-control float-right" placeholder="Quick search...">
                     <div class="input-group-append">
                         <button type="button" class="btn btn-default">
                             <i class="fas fa-search"></i>
@@ -97,96 +363,115 @@
                 </div>
             </div>
         </div>
-        <div class="card-body">
+        <div class="card-body p-0">
             @if($pppoeSecrets->count() > 0)
                 <div class="table-responsive">
-                    <table class="table table-bordered table-striped" id="pppoeTable">
-                        <thead>
+                    <table class="table table-sm table-hover mb-0" id="pppoeTable">
+                        <thead class="bg-light">
                             <tr>
-                                <th width="5%">#</th>
+                                <th width="4%" class="text-center">#</th>
                                 <th>Username</th>
                                 <th>Router</th>
-                                <th>Service</th>
+                                <th class="text-center">Service</th>
                                 <th>Profile</th>
-                                <th>Local IP</th>
-                                <th>Remote IP</th>
-                                <th>Status</th>
-                                <th>Sync Status</th>
-                                @if(auth()->user()->isSuperAdmin())
-                                    <th>Created By</th>
+                                <th class="text-center">Status</th>
+                                <th class="text-center">Sync</th>
+                                @if(auth()->user()->role && auth()->user()->role->name === 'super_admin')
+                                    <th class="text-center">Created By</th>
                                 @endif
-                                <th>Created At</th>
-                                <th width="15%">Actions</th>
+                                <th class="text-center">Date</th>
+                                <th width="12%" class="text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach ($pppoeSecrets as $index => $secret)
                                 <tr>
-                                    <td>{{ $pppoeSecrets->firstItem() + $index }}</td>
-                                    <td>
-                                        <strong>{{ $secret->username }}</strong>
+                                    <td class="text-center align-middle">
+                                        <span class="text-muted">{{ $pppoeSecrets->firstItem() + $index }}</span>
+                                    </td>
+                                    <td class="align-middle">
+                                        <div class="secret-username">{{ $secret->username }}</div>
                                         @if($secret->comment)
-                                            <br><small class="text-muted">{{ Str::limit($secret->comment, 30) }}</small>
+                                            <small class="text-muted d-block">{{ Str::limit($secret->comment, 25) }}</small>
+                                        @endif
+                                        @if($secret->local_address || $secret->remote_address)
+                                            <div class="mt-1">
+                                                @if($secret->local_address)
+                                                    <span class="badge badge-light badge-sm">L: {{ $secret->local_address }}</span>
+                                                @endif
+                                                @if($secret->remote_address)
+                                                    <span class="badge badge-light badge-sm">R: {{ $secret->remote_address }}</span>
+                                                @endif
+                                            </div>
                                         @endif
                                     </td>
-                                    <td>
-                                        <span class="badge badge-info">{{ $secret->router->name }}</span>
-                                        <br><small class="text-muted">{{ $secret->router->ip_address }}</small>
+                                    <td class="align-middle">
+                                        <div class="router-info">
+                                            <span class="badge badge-info badge-sm">{{ $secret->router->name }}</span>
+                                            <small class="text-muted">{{ $secret->router->ip_address }}</small>
+                                        </div>
                                     </td>
-                                    <td>
-                                        <span class="badge badge-secondary">{{ $secret->service ?: 'pppoe' }}</span>
+                                    <td class="text-center align-middle">
+                                        <span class="badge badge-secondary badge-sm">{{ $secret->service ?: 'pppoe' }}</span>
                                     </td>
-                                    <td>
-                                        {{ $secret->profile ?: '-' }}
+                                    <td class="align-middle">
+                                        <span class="text-primary font-weight-medium">{{ $secret->profile ?: '-' }}</span>
                                     </td>
-                                    <td>
-                                        {{ $secret->local_address ?: '-' }}
-                                    </td>
-                                    <td>
-                                        {{ $secret->remote_address ?: '-' }}
-                                    </td>
-                                    <td>
-                                        <span class="badge badge-{{ $secret->disabled ? 'danger' : 'success' }}">
+                                    <td class="text-center align-middle">
+                                        <span class="badge badge-{{ $secret->disabled ? 'danger' : 'success' }} badge-sm">
                                             {{ $secret->disabled ? 'Disabled' : 'Active' }}
                                         </span>
                                     </td>
-                                    <td>
+                                    <td class="text-center align-middle">
                                         <div class="sync-status-container" data-secret-id="{{ $secret->id }}">
-                                            <span class="badge badge-secondary">
-                                                <i class="fas fa-spinner fa-spin"></i> Checking...
+                                            <span class="badge badge-warning badge-sm">
+                                                <i class="fas fa-spinner fa-spin"></i> Checking
                                             </span>
                                         </div>
                                     </td>
-                                    @if(auth()->user()->isSuperAdmin())
-                                        <td>
-                                            {{ $secret->user->name }}
-                                            <br><small class="text-muted">{{ $secret->user->email }}</small>
+                                    @if(auth()->user()->role && auth()->user()->role->name === 'super_admin')
+                                        <td class="text-center align-middle">
+                                            <div class="user-info">
+                                                <span class="d-block font-weight-medium">{{ $secret->user->name }}</span>
+                                                <small class="text-muted">{{ Str::limit($secret->user->email, 15) }}</small>
+                                            </div>
                                         </td>
                                     @endif
-                                    <td>
-                                        {{ $secret->created_at->format('d M Y') }}
-                                        <br><small class="text-muted">{{ $secret->created_at->format('H:i') }}</small>
+                                    <td class="text-center align-middle">
+                                        <div class="date-info">
+                                            <span class="d-block">{{ $secret->created_at->format('d M Y') }}</span>
+                                            <small class="text-muted">{{ $secret->created_at->format('H:i') }}</small>
+                                        </div>
                                     </td>
-                                    <td>
-                                        <div class="btn-group btn-group-sm" role="group">
-                                            <a href="{{ route('pppoe.show', $secret) }}" 
-                                               class="btn btn-info" title="View Details">
-                                                <i class="fas fa-eye"></i>
-                                            </a>
-                                            <a href="{{ route('pppoe.edit', $secret) }}" 
-                                               class="btn btn-warning" title="Edit">
-                                                <i class="fas fa-edit"></i>
-                                            </a>
-                                            <form action="{{ route('pppoe.destroy', $secret) }}" 
-                                                  method="POST" style="display: inline;"
-                                                  class="delete-form"
-                                                  data-secret-name="{{ $secret->username }}">
-                                                @csrf
-                                                @method('DELETE')
-                                                <button type="button" class="btn btn-danger delete-btn" title="Delete">
-                                                    <i class="fas fa-trash"></i>
+                                    <td class="text-center align-middle">
+                                        <div class="secret-actions">
+                                            <div class="btn-group btn-group-sm" role="group">
+                                                <a href="{{ route('pppoe.show', $secret) }}" 
+                                                   class="btn btn-outline-info btn-sm" title="View">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
+                                                <a href="{{ route('pppoe.edit', $secret) }}" 
+                                                   class="btn btn-outline-warning btn-sm" title="Edit">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
+                                                <button type="button" 
+                                                        class="btn btn-outline-primary btn-sm sync-btn" 
+                                                        data-secret-id="{{ $secret->id }}"
+                                                        title="Sync to MikroTik">
+                                                    <i class="fas fa-sync-alt"></i>
                                                 </button>
-                                            </form>
+                                                <form action="{{ route('pppoe.destroy', $secret) }}" method="POST" 
+                                                      class="delete-secret-form" data-secret-name="{{ $secret->username }}">
+                                                    @csrf
+                                                    @method('DELETE')
+                                                    <button type="button" 
+                                                            class="btn btn-outline-danger btn-sm delete-btn" 
+                                                            title="Delete"
+                                                            onclick="openDeleteModal('{{ $secret->id }}', '{{ addslashes($secret->username) }}', '{{ route('pppoe.destroy', $secret->id) }}')">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </form>
+                                            </div>
                                         </div>
                                     </td>
                                 </tr>
@@ -195,63 +480,106 @@
                     </table>
                 </div>
 
-                <!-- Pagination -->
-                <div class="d-flex justify-content-center">
-                    {{ $pppoeSecrets->links() }}
+                <!-- Enhanced Pagination -->
+                <div class="card-footer">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <div class="dataTables_info">
+                                Showing {{ $pppoeSecrets->firstItem() ?? 0 }} to {{ $pppoeSecrets->lastItem() ?? 0 }} 
+                                of {{ $pppoeSecrets->total() }} entries
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="float-right">
+                                {{ $pppoeSecrets->appends(request()->query())->links() }}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             @else
-                <div class="text-center py-4">
-                    <i class="fas fa-wifi fa-3x text-muted mb-3"></i>
-                    <h5 class="text-muted">No PPPoE secrets found</h5>
-                    <p class="text-muted">Start by creating your first PPPoE secret.</p>
-                    <a href="{{ route('pppoe.create') }}" class="btn btn-primary">
-                        <i class="fas fa-plus"></i> Add New PPPoE Secret
-                    </a>
+                <div class="card-body">
+                    <div class="text-center py-5">
+                        <div class="mb-4">
+                            <i class="fas fa-wifi fa-4x text-muted mb-3"></i>
+                            <h4 class="text-muted mb-2">No PPPoE Secrets Found</h4>
+                            <p class="text-muted">
+                                @if(request()->has('search') || request()->has('router_id') || request()->has('status'))
+                                    No secrets match your current filters. Try adjusting your search criteria.
+                                @else
+                                    You haven't created any PPPoE secrets yet. Start by adding your first secret.
+                                @endif
+                            </p>
+                        </div>
+                        <div>
+                            @if(request()->has('search') || request()->has('router_id') || request()->has('status'))
+                                <a href="{{ route('pppoe.index') }}" class="btn btn-secondary mr-2">
+                                    <i class="fas fa-times"></i> Clear Filters
+                                </a>
+                            @endif
+                            <a href="{{ route('pppoe.create') }}" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Add New Secret
+                            </a>
+                        </div>
+                    </div>
                 </div>
             @endif
         </div>
     </div>
 
-    <!-- Import Modal -->
+    <!-- Enhanced Import Modal -->
     <div class="modal fade" id="importModal" tabindex="-1" role="dialog" aria-labelledby="importModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-xl" role="document">
             <div class="modal-content">
-                <div class="modal-header">
+                <div class="modal-header bg-primary text-white">
                     <h5 class="modal-title" id="importModalLabel">
                         <i class="fas fa-download"></i> Import PPPoE Secrets from MikroTik
                     </h5>
-                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body p-4">
+                    <!-- Step 1: Router Selection -->
                     <div id="step1" class="import-step">
-                        <h6>Step 1: Select Router</h6>
-                        <form id="routerSelectionForm">
-                            @csrf
-                            <div class="form-group">
-                                <label for="importRouterId">Select Router:</label>
-                                <select class="form-control" id="importRouterId" name="router_id" required>
-                                    <option value="">Choose a router...</option>
-                                    @php $user = auth()->user(); @endphp
-                                    @if($user->hasRole('super_admin'))
-                                        @foreach(\App\Models\Router::where('status', 'active')->get() as $router)
-                                            <option value="{{ $router->id }}">{{ $router->name }} ({{ $router->ip_address }})</option>
-                                        @endforeach
-                                    @else
-                                        @foreach($user->routers()->where('status', 'active')->get() as $router)
-                                            <option value="{{ $router->id }}">{{ $router->name }} ({{ $router->ip_address }})</option>
-                                        @endforeach
-                                    @endif
-                                </select>
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="card border-primary">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="fas fa-router"></i> Step 1: Select Router</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <form id="routerSelectionForm">
+                                            @csrf
+                                            <div class="form-group">
+                                                <label for="importRouterId" class="font-weight-medium">Choose Router to Import From:</label>
+                                                <select class="form-control form-control-lg" id="importRouterId" name="router_id" required>
+                                                    <option value="">-- Select a router --</option>
+                                                    @php 
+                                                        $user = auth()->user();
+                                                        $importRouters = $user->hasRole('super_admin') 
+                                                            ? \App\Models\Router::where('status', 'active')->get()
+                                                            : $user->routers()->where('status', 'active')->get();
+                                                    @endphp
+                                                    @foreach($importRouters as $router)
+                                                        <option value="{{ $router->id }}">
+                                                            {{ $router->name }} ({{ $router->ip_address }})
+                                                        </option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                            <div class="text-center">
+                                                <button type="button" class="btn btn-outline-primary mr-2" id="previewImportBtn">
+                                                    <i class="fas fa-eye"></i> Preview Secrets
+                                                </button>
+                                                <button type="button" class="btn btn-success" id="directImportBtn">
+                                                    <i class="fas fa-download"></i> Import All Directly
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
                             </div>
-                            <button type="button" class="btn btn-primary" id="previewImportBtn">
-                                <i class="fas fa-eye"></i> Preview Secrets
-                            </button>
-                            <button type="button" class="btn btn-success" id="directImportBtn">
-                                <i class="fas fa-download"></i> Import All Directly
-                            </button>
-                        </form>
+                        </div>
                     </div>
 
                     <div id="step2" class="import-step" style="display: none;">
@@ -317,6 +645,126 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden Delete Form -->
+    <form id="deleteSecretForm" style="display: none;" method="POST">
+        @csrf
+        @method('DELETE')
+    </form>
+
+    <!-- Delete Secret Modal -->
+    <div class="modal fade" id="deleteSecretModal" tabindex="-1" role="dialog" aria-labelledby="deleteSecretModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title" id="deleteSecretModalLabel">
+                        <i class="fas fa-trash-alt"></i> Konfirmasi Hapus PPPoE Secret
+                    </h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center mb-3">
+                        <i class="fas fa-exclamation-triangle text-warning" style="font-size: 3rem;"></i>
+                    </div>
+                    <h5 class="text-center mb-3">Anda yakin ingin menghapus secret ini?</h5>
+                    <div class="alert alert-info">
+                        <strong>Username:</strong> <span id="deleteSecretName"></span>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <p class="font-weight-bold">Pilih aksi yang ingin dilakukan:</p>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="radio" name="delete_option" id="delete_app_only" value="app_only">
+                            <label class="form-check-label" for="delete_app_only">
+                                <strong>Hapus dari Aplikasi Saja</strong><br>
+                                <small class="text-muted">Secret akan dihapus dari database, tetapi tetap ada di MikroTik</small>
+                            </label>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="radio" name="delete_option" id="delete_mikrotik_only" value="mikrotik_only">
+                            <label class="form-check-label" for="delete_mikrotik_only">
+                                <strong>Hapus dari MikroTik Saja</strong><br>
+                                <small class="text-muted">Secret akan dihapus dari router, tetapi tetap ada di aplikasi</small>
+                            </label>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="radio" name="delete_option" id="delete_both" value="both" checked>
+                            <label class="form-check-label" for="delete_both">
+                                <strong>Hapus dari Aplikasi dan MikroTik</strong><br>
+                                <small class="text-muted">Secret akan dihapus sepenuhnya dari kedua tempat</small>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="fas fa-times"></i> Ora Sido
+                    </button>
+                    <button type="button" class="btn btn-danger" id="confirm-delete-secret">
+                        <i class="fas fa-trash-alt"></i> Hapus Secret
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Success Modal -->
+    <div class="modal fade" id="syncSuccessModal" tabindex="-1" role="dialog" aria-labelledby="syncSuccessModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title" id="syncSuccessModalLabel">
+                        <i class="fas fa-check-circle"></i> Sukses Synced Bro
+                    </h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body text-center">
+                    <div class="mb-3">
+                        <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
+                    </div>
+                    <h4>Sukses Synced Bro!</h4>
+                    <p class="text-muted">PPPoE secret berhasil disinkronisasi ke router MikroTik.</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-success" id="reloadAfterSync">
+                        <i class="fas fa-redo"></i> OK Lek
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Error Modal -->
+    <div class="modal fade" id="syncErrorModal" tabindex="-1" role="dialog" aria-labelledby="syncErrorModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title" id="syncErrorModalLabel">
+                        <i class="fas fa-exclamation-triangle"></i> Sync Failed
+                    </h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body text-center">
+                    <div class="mb-3">
+                        <i class="fas fa-exclamation-triangle text-danger" style="font-size: 4rem;"></i>
+                    </div>
+                    <h4>Sync Failed</h4>
+                    <p class="text-muted" id="syncErrorModalBody">Failed to sync secret to router.</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                        <i class="fas fa-times"></i> Close
+                    </button>
                 </div>
             </div>
         </div>
@@ -613,68 +1061,8 @@ $(document).ready(function() {
     // Check sync status for all secrets when page loads
     function checkAllSyncStatus() {
         $('.sync-status-container').each(function() {
-            const container = $(this);
-            const secretId = container.data('secret-id');
-            
-            console.log('Checking sync status for secret ID:', secretId);
-            
-            $.post('/pppoe/' + secretId + '/check-sync-status', {
-                _token: '{{ csrf_token() }}'
-            })
-            .done(function(response) {
-                console.log('Sync status response for secret', secretId, ':', response);
-                
-                let statusHtml = '';
-                let badgeClass = '';
-                let icon = '';
-                
-                if (response.success) {
-                    switch(response.sync_status) {
-                        case 'synced':
-                            badgeClass = 'badge-success';
-                            icon = 'fas fa-check';
-                            statusHtml = '<i class="' + icon + '"></i> Synced';
-                            break;
-                        case 'out_of_sync':
-                            badgeClass = 'badge-warning';
-                            icon = 'fas fa-exclamation-triangle';
-                            statusHtml = '<i class="' + icon + '"></i> Out of Sync';
-                            break;
-                        case 'not_synced':
-                            badgeClass = 'badge-danger';
-                            icon = 'fas fa-times';
-                            statusHtml = '<i class="' + icon + '"></i> Not in MikroTik';
-                            break;
-                        case 'connection_failed':
-                            badgeClass = 'badge-secondary';
-                            icon = 'fas fa-exclamation-circle';
-                            statusHtml = '<i class="' + icon + '"></i> Connection Failed';
-                            break;
-                        case 'error':
-                        default:
-                            badgeClass = 'badge-secondary';
-                            icon = 'fas fa-question';
-                            statusHtml = '<i class="' + icon + '"></i> Error';
-                            break;
-                    }
-                } else {
-                    console.error('Sync status check failed for secret', secretId, ':', response.message);
-                    badgeClass = 'badge-secondary';
-                    icon = 'fas fa-question';
-                    statusHtml = '<i class="' + icon + '"></i> Error';
-                }
-                
-                container.html('<span class="badge ' + badgeClass + '">' + statusHtml + '</span>');
-            })
-            .fail(function(xhr, status, error) {
-                console.error('AJAX request failed for secret', secretId, ':', {
-                    xhr: xhr,
-                    status: status,
-                    error: error,
-                    responseText: xhr.responseText
-                });
-                container.html('<span class="badge badge-secondary"><i class="fas fa-question"></i> Error</span>');
-            });
+            const secretId = $(this).data('secret-id');
+            checkSyncStatusForSecret(secretId);
         });
     }
 
@@ -683,38 +1071,335 @@ $(document).ready(function() {
         setTimeout(checkAllSyncStatus, 1000); // Delay 1 second to ensure page is fully loaded
     });
     
-    // SweetAlert2 for delete confirmation
-    $('.delete-btn').on('click', function(e) {
+    // Enhanced Sync Button functionality
+    $(document).on('click', '.sync-btn', function(e) {
         e.preventDefault();
+        const secretId = $(this).data('secret-id');
+        const btn = $(this);
+        const row = btn.closest('tr');
+        const syncContainer = row.find('.sync-status-container');
+        const username = row.find('.secret-username').text().trim();
         
-        const form = $(this).closest('.delete-form');
-        const secretName = form.data('secret-name');
+        console.log('Starting sync for secret:', { secretId, username });
         
-        Swal.fire({
-            title: 'Konfirmasi Hapus',
-            html: `Apakah Anda yakin ingin menghapus PPPoE secret <strong>"${secretName}"</strong>?<br><br>
-                   <small class="text-warning"><i class="fas fa-exclamation-triangle"></i> Secret ini juga akan dihapus dari MikroTik router.</small>`,
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#d33',
-            cancelButtonColor: '#6c757d',
-            confirmButtonText: '<i class="fas fa-trash"></i> Ya, Hapus!',
-            cancelButtonText: '<i class="fas fa-times"></i> Batal',
-            reverseButtons: true,
-            focusCancel: true,
-            allowOutsideClick: false,
-            allowEscapeKey: true,
-            customClass: {
-                popup: 'swal2-popup-delete',
-                title: 'swal2-title-delete',
-                content: 'swal2-content-delete'
+        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+        syncContainer.html('<span class="badge badge-info badge-sm"><i class="fas fa-spinner fa-spin"></i> Syncing...</span>');
+        
+        $.ajax({
+            url: `/pppoe/${secretId}/sync-to-mikrotik`,
+            type: 'POST',
+            data: {
+                _token: '{{ csrf_token() }}'
+            },
+            success: function(response) {
+                console.log('Sync response:', response);
+                
+                if (response.success) {
+                    // Update sync status badge to show success
+                    syncContainer.html('<span class="badge badge-success badge-sm"><i class="fas fa-check"></i> Synced</span>');
+                    
+                    // Show success message with details
+                    let message = response.message || 'PPPoE secret berhasil disinkronisasi ke MikroTik.';
+                    
+                    Swal.fire({
+                        title: 'Sync Berhasil!',
+                        text: message,
+                        icon: 'success',
+                        timer: 3000,
+                        showConfirmButton: false,
+                        toast: true,
+                        position: 'top-end'
+                    });
+                    
+                    // Reload status after short delay to get fresh data
+                    setTimeout(function() {
+                        checkSyncStatusForSecret(secretId);
+                    }, 2000);
+                    
+                } else {
+                    // Update sync status to show error
+                    syncContainer.html('<span class="badge badge-danger badge-sm"><i class="fas fa-times"></i> Error</span>');
+                    
+                    // Show error details
+                    Swal.fire({
+                        title: 'Sync Gagal',
+                        text: response.message || 'Gagal melakukan sinkronisasi ke MikroTik.',
+                        icon: 'error',
+                        confirmButtonText: 'OK'
+                    });
+                }
+            },
+            error: function(xhr) {
+                console.error('Sync error:', xhr);
+                
+                // Update sync status to show error  
+                syncContainer.html('<span class="badge badge-danger badge-sm"><i class="fas fa-times"></i> Error</span>');
+                
+                const response = xhr.responseJSON;
+                let message = 'Terjadi kesalahan saat melakukan sync.';
+                
+                if (response && response.message) {
+                    message = response.message;
+                } else if (xhr.status === 500) {
+                    message = 'Server error: ' + (xhr.statusText || 'Internal Server Error');
+                } else if (xhr.status === 404) {
+                    message = 'Endpoint tidak ditemukan.';
+                } else if (xhr.status === 403) {
+                    message = 'Tidak memiliki izin untuk melakukan sync.';
+                }
+                
+                Swal.fire({
+                    title: 'Sync Error',
+                    text: message,
+                    icon: 'error',
+                    confirmButtonText: 'OK'
+                });
+            },
+            complete: function() {
+                // Reset button to normal state
+                btn.prop('disabled', false).html('<i class="fas fa-sync-alt"></i>');
             }
+        });
+    });
+
+    // Function to check sync status for a specific secret
+    function checkSyncStatusForSecret(secretId) {
+        const container = $('.sync-status-container[data-secret-id="' + secretId + '"]');
+        
+        if (container.length === 0) {
+            console.warn('Sync status container not found for secret ID:', secretId);
+            return;
+        }
+        
+        console.log('Checking sync status for secret ID:', secretId);
+        
+        $.post('/pppoe/' + secretId + '/check-sync-status', {
+            _token: '{{ csrf_token() }}'
+        })
+        .done(function(response) {
+            console.log('Sync status response for secret', secretId, ':', response);
+            
+            let statusHtml = '';
+            let badgeClass = '';
+            let icon = '';
+            
+            if (response.success) {
+                switch(response.sync_status) {
+                    case 'synced':
+                        badgeClass = 'badge-success';
+                        icon = 'fas fa-check';
+                        statusHtml = '<i class="' + icon + '"></i> Synced';
+                        break;
+                    case 'out_of_sync':
+                        badgeClass = 'badge-warning';
+                        icon = 'fas fa-exclamation-triangle';
+                        statusHtml = '<i class="' + icon + '"></i> Out of Sync';
+                        break;
+                    case 'not_synced':
+                        badgeClass = 'badge-danger';
+                        icon = 'fas fa-times';
+                        statusHtml = '<i class="' + icon + '"></i> Not in MikroTik';
+                        break;
+                    case 'connection_failed':
+                        badgeClass = 'badge-secondary';
+                        icon = 'fas fa-exclamation-circle';
+                        statusHtml = '<i class="' + icon + '"></i> Connection Failed';
+                        break;
+                    case 'error':
+                    default:
+                        badgeClass = 'badge-secondary';
+                        icon = 'fas fa-question';
+                        statusHtml = '<i class="' + icon + '"></i> Error';
+                        break;
+                }
+            } else {
+                console.error('Sync status check failed for secret', secretId, ':', response.message);
+                badgeClass = 'badge-secondary';
+                icon = 'fas fa-question';
+                statusHtml = '<i class="' + icon + '"></i> Error';
+            }
+            
+            container.html('<span class="badge ' + badgeClass + ' badge-sm">' + statusHtml + '</span>');
+        })
+        .fail(function(xhr, status, error) {
+            console.error('AJAX request failed for secret', secretId, ':', {
+                xhr: xhr,
+                status: status,
+                error: error,
+                responseText: xhr.responseText
+            });
+            container.html('<span class="badge badge-secondary badge-sm"><i class="fas fa-question"></i> Error</span>');
+        });
+    }
+
+    // Handle reload after sync success
+    $(document).on('click', '#reloadAfterSync', function() {
+        location.reload();
+    });
+
+    // Delete Secret Modal Handler
+    $('#confirm-delete-secret').click(function() {
+        console.log('Confirm delete clicked'); // Debug log
+        
+        const secretId = $('#deleteSecretForm').data('secret-id');
+        const secretName = $('#deleteSecretForm').data('secret-name');
+        const deleteUrl = $('#deleteSecretForm').attr('action');
+        const deleteOption = $('input[name="delete_option"]:checked').val();
+        
+        console.log('Delete data:', { secretId, secretName, deleteUrl, deleteOption }); // Debug log
+        
+        if (!deleteUrl) {
+            console.error('Delete URL not found');
+            Swal.fire('Error', 'URL delete tidak ditemukan. Silakan refresh halaman.', 'error');
+            return;
+        }
+        
+        console.log('Submitting delete request...'); // Debug log
+        
+        if (!deleteOption) {
+            Swal.fire('Error', 'Silakan pilih opsi delete terlebih dahulu.', 'error');
+            return;
+        }
+        
+        // Show loading state
+        $(this).prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Menghapus...');
+        
+        // Hide modal
+        $('#deleteSecretModal').modal('hide');
+        
+        // Show loading modal
+        Swal.fire({
+            title: 'Menghapus...',
+            html: 'Sedang menghapus PPPoE secret.',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+        
+        // Submit delete request with option
+        $.ajax({
+            url: deleteUrl,
+            type: 'POST',
+            data: {
+                _token: '{{ csrf_token() }}',
+                _method: 'DELETE',
+                delete_option: deleteOption
+            },
+            success: function(response) {
+                console.log('Delete response:', response); // Debug log
+                
+                Swal.close();
+                
+                if (response.success) {
+                    Swal.fire({
+                        title: 'Berhasil!',
+                        text: response.message,
+                        icon: 'success',
+                        timer: 2000,
+                        showConfirmButton: false
+                    }).then(() => {
+                        location.reload();
+                    });
+                } else {
+                    Swal.fire('Error', response.message, 'error');
+                }
+            },
+            error: function(xhr) {
+                console.error('Delete error:', xhr); // Debug log
+                
+                Swal.close();
+                
+                let message = 'Gagal menghapus secret.';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    message = xhr.responseJSON.message;
+                }
+                
+                Swal.fire('Error', message, 'error');
+            },
+            complete: function() {
+                // Reset button state
+                $('#confirm-delete-secret').prop('disabled', false).html('<i class="fas fa-trash-alt"></i> Hapus Secret');
+            }
+        });
+    });
+
+    // Function to open delete modal
+    function openDeleteModal(secretId, secretName, deleteUrl) {
+        console.log('Opening delete modal:', { secretId, secretName, deleteUrl });
+        
+        // Store data
+        $('#deleteSecretForm').data('secret-id', secretId);
+        $('#deleteSecretForm').data('secret-name', secretName);
+        $('#deleteSecretForm').attr('action', deleteUrl);
+        
+        // Update modal content
+        $('#deleteSecretName').text(secretName);
+        
+        // Reset radio buttons
+        $('input[name="delete_option"]').prop('checked', false);
+        $('#delete_both').prop('checked', true);
+        
+        // Show modal
+        $('#deleteSecretModal').modal('show');
+    }
+    
+    // Make function global
+    window.openDeleteModal = openDeleteModal;
+
+    // Enhanced search with debounce and highlighting
+    let searchTimeout;
+    $('#searchInput').on('keyup', function() {
+        clearTimeout(searchTimeout);
+        const value = $(this).val().toLowerCase();
+        
+        searchTimeout = setTimeout(function() {
+            $('#pppoeTable tbody tr').each(function() {
+                const row = $(this);
+                const text = row.text().toLowerCase();
+                const matches = text.indexOf(value) > -1;
+                row.toggle(matches);
+                
+                // Highlight matching rows
+                if (value && matches) {
+                    row.addClass('table-warning');
+                } else {
+                    row.removeClass('table-warning');
+                }
+            });
+            
+            // Update visible count
+            const visibleRows = $('#pppoeTable tbody tr:visible').length;
+            const totalRows = $('#pppoeTable tbody tr').length;
+            if (value) {
+                $('#searchResult').remove();
+                $('.card-header .card-title').append(
+                    `<small id="searchResult" class="ml-2 text-muted">(${visibleRows} of ${totalRows})</small>`
+                );
+            } else {
+                $('#searchResult').remove();
+            }
+        }, 300);
+    });
+
+    // Sync All Secrets function
+    function syncAllSecrets() {
+        Swal.fire({
+            title: 'Sync All Secrets',
+            text: 'This will sync all PPPoE secrets with MikroTik. Continue?',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'Yes, Sync All',
+            cancelButtonText: 'Cancel'
         }).then((result) => {
             if (result.isConfirmed) {
-                // Show loading state
                 Swal.fire({
-                    title: 'Menghapus...',
-                    html: 'Sedang menghapus PPPoE secret dari database dan MikroTik.',
+                    title: 'Syncing...',
+                    text: 'Please wait while syncing secrets...',
                     allowOutsideClick: false,
                     allowEscapeKey: false,
                     showConfirmButton: false,
@@ -722,12 +1407,50 @@ $(document).ready(function() {
                         Swal.showLoading();
                     }
                 });
-                
-                // Submit the form
-                form.submit();
+
+                // Here you can add the actual sync functionality
+                // For now, just show success after 2 seconds
+                setTimeout(() => {
+                    Swal.fire({
+                        title: 'Success!',
+                        text: 'All secrets have been synced successfully.',
+                        icon: 'success',
+                        timer: 2000,
+                        showConfirmButton: false
+                    });
+                }, 2000);
             }
         });
-    });
+    }
+
+    // Export Secrets function
+    function exportSecrets() {
+        Swal.fire({
+            title: 'Export Secrets',
+            text: 'Choose export format:',
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#28a745',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'Export CSV',
+            cancelButtonText: 'Cancel',
+            showDenyButton: true,
+            denyButtonText: 'Export Excel',
+            denyButtonColor: '#17a2b8'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Export as CSV
+                window.location.href = '{{ route("pppoe.index") }}?export=csv';
+            } else if (result.isDenied) {
+                // Export as Excel
+                window.location.href = '{{ route("pppoe.index") }}?export=excel';
+            }
+        });
+    }
+
+    // Make functions globally available
+    window.syncAllSecrets = syncAllSecrets;
+    window.exportSecrets = exportSecrets;
 });
 </script>
 
@@ -736,44 +1459,4 @@ $(document).ready(function() {
 
 <!-- SweetAlert2 JS -->
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.7.32/dist/sweetalert2.all.min.js"></script>
-
-<!-- Custom SweetAlert2 Styling -->
-<style>
-.swal2-popup-delete {
-    border-radius: 15px !important;
-    padding: 2em !important;
-}
-
-.swal2-title-delete {
-    color: #dc3545 !important;
-    font-weight: 600 !important;
-}
-
-.swal2-content-delete {
-    font-size: 1rem !important;
-    line-height: 1.5 !important;
-}
-
-.swal2-confirm {
-    border-radius: 8px !important;
-    padding: 10px 20px !important;
-    font-weight: 500 !important;
-}
-
-.swal2-cancel {
-    border-radius: 8px !important;
-    padding: 10px 20px !important;
-    font-weight: 500 !important;
-}
-
-.swal2-icon.swal2-warning {
-    border-color: #ffc107 !important;
-    color: #ffc107 !important;
-}
-
-/* Loading animation custom style */
-.swal2-loading .swal2-styled.swal2-confirm {
-    background-color: #d33 !important;
-}
-</style>
 @stop

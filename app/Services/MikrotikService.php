@@ -178,43 +178,128 @@ class MikrotikService
                 throw new Exception('Not connected to RouterOS');
             }
 
+            Log::info('Creating PPP secret with data:', $data);
+
+            // Validate required data
+            if (empty($data['username'])) {
+                throw new Exception('Username is required');
+            }
+            if (empty($data['password'])) {
+                throw new Exception('Password is required');
+            }
+
             $query = (new Query('/ppp/secret/add'))
                 ->equal('name', $data['username'])
                 ->equal('password', $data['password']);
 
-            if (isset($data['service'])) {
+            if (isset($data['service']) && !empty($data['service'])) {
                 $query->equal('service', $data['service']);
+                Log::info('Adding service: ' . $data['service']);
             }
             
-            if (isset($data['profile'])) {
+            if (isset($data['profile']) && !empty($data['profile'])) {
                 $query->equal('profile', $data['profile']);
+                Log::info('Adding profile: ' . $data['profile']);
             }
             
-            if (isset($data['local_address'])) {
+            if (isset($data['local_address']) && !empty($data['local_address'])) {
                 $query->equal('local-address', $data['local_address']);
+                Log::info('Adding local-address: ' . $data['local_address']);
             }
             
-            if (isset($data['remote_address'])) {
+            if (isset($data['remote_address']) && !empty($data['remote_address'])) {
                 $query->equal('remote-address', $data['remote_address']);
+                Log::info('Adding remote-address: ' . $data['remote_address']);
             }
             
-            if (isset($data['comment'])) {
+            if (isset($data['comment']) && !empty($data['comment'])) {
                 $query->equal('comment', $data['comment']);
+                Log::info('Adding comment: ' . $data['comment']);
             }
 
             if (isset($data['disabled']) && $data['disabled']) {
                 $query->equal('disabled', 'yes');
+                Log::info('Adding disabled: yes');
             }
 
+            Log::info('Executing RouterOS query for creating PPP secret');
             $response = $this->client->query($query)->read();
             
+            Log::info('Create PPP secret response:', $response);
+
+            // Extract the created secret ID - RouterOS API response format
+            $secretId = null;
+            if (!empty($response) && isset($response[0])) {
+                // Different ways to get the ID depending on RouterOS version
+                if (isset($response[0]['after']['ret'])) {
+                    $secretId = $response[0]['after']['ret'];
+                    Log::info('Got secret ID from after.ret: ' . $secretId);
+                } elseif (isset($response[0]['!done'])) {
+                    // For newer RouterOS versions, get ID from separate query
+                    Log::info('Response indicates done, querying for created secret by username');
+                    $createdSecret = $this->client->query(
+                        (new Query('/ppp/secret/print'))
+                            ->where('name', $data['username'])
+                    )->read();
+                    
+                    Log::info('Query result for created secret:', $createdSecret);
+                    
+                    if (!empty($createdSecret) && isset($createdSecret[0]['.id'])) {
+                        $secretId = $createdSecret[0]['.id'];
+                        Log::info('Got secret ID from separate query: ' . $secretId);
+                    }
+                } else {
+                    // Fallback: query by username to get the ID
+                    Log::info('Using fallback method to get secret ID');
+                    $createdSecret = $this->client->query(
+                        (new Query('/ppp/secret/print'))
+                            ->where('name', $data['username'])
+                    )->read();
+                    
+                    Log::info('Fallback query result:', $createdSecret);
+                    
+                    if (!empty($createdSecret) && isset($createdSecret[0]['.id'])) {
+                        $secretId = $createdSecret[0]['.id'];
+                        Log::info('Got secret ID from fallback: ' . $secretId);
+                    }
+                }
+            } else {
+                Log::warning('Empty or invalid response from RouterOS', ['response' => $response]);
+            }
+
+            // Final verification - check if secret was actually created
+            if (!$secretId) {
+                Log::warning('No secret ID obtained, verifying if secret was created');
+                $verifySecret = $this->client->query(
+                    (new Query('/ppp/secret/print'))
+                        ->where('name', $data['username'])
+                )->read();
+                
+                Log::info('Verification query result:', $verifySecret);
+                
+                if (!empty($verifySecret) && isset($verifySecret[0]['.id'])) {
+                    $secretId = $verifySecret[0]['.id'];
+                    Log::info('Secret verified and ID obtained: ' . $secretId);
+                } else {
+                    Log::error('Secret creation may have failed - could not find created secret');
+                }
+            }
+
+            Log::info('Final result - Secret ID: ' . ($secretId ?: 'null'));
+
             return [
                 'success' => true,
+                'message' => 'PPP secret created successfully',
                 'data' => $response,
-                'id' => $response[0]['after']['ret'] ?? null
+                'id' => $secretId
             ];
         } catch (Exception $e) {
-            Log::error('Failed to create PPP secret: ' . $e->getMessage());
+            Log::error('Failed to create PPP secret: ' . $e->getMessage(), [
+                'username' => $data['username'] ?? 'unknown',
+                'error_trace' => $e->getTraceAsString(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine()
+            ]);
             return [
                 'success' => false,
                 'message' => $e->getMessage(),
@@ -233,45 +318,84 @@ class MikrotikService
                 throw new Exception('Not connected to RouterOS');
             }
 
+            Log::info('Attempting to update PPP secret', [
+                'mikrotik_id' => $mikrotikId,
+                'data' => $data
+            ]);
+
+            // First check if the secret with this ID actually exists
+            $existingSecret = $this->client->query(
+                (new Query('/ppp/secret/print'))
+                    ->where('.id', $mikrotikId)
+            )->read();
+
+            Log::info('Existing secret check result', [
+                'mikrotik_id' => $mikrotikId,
+                'found' => !empty($existingSecret),
+                'existing_data' => $existingSecret
+            ]);
+
+            if (empty($existingSecret)) {
+                Log::error('Cannot update: PPP secret with ID does not exist', [
+                    'mikrotik_id' => $mikrotikId
+                ]);
+                throw new Exception("PPP secret with ID '{$mikrotikId}' does not exist in MikroTik");
+            }
+
             $query = (new Query('/ppp/secret/set'))
                 ->equal('.id', $mikrotikId);
 
             if (isset($data['password'])) {
                 $query->equal('password', $data['password']);
+                Log::info('Updating password');
             }
             
             if (isset($data['service'])) {
                 $query->equal('service', $data['service']);
+                Log::info('Updating service: ' . $data['service']);
             }
             
             if (isset($data['profile'])) {
                 $query->equal('profile', $data['profile']);
+                Log::info('Updating profile: ' . $data['profile']);
             }
             
             if (isset($data['local_address'])) {
                 $query->equal('local-address', $data['local_address']);
+                Log::info('Updating local-address: ' . $data['local_address']);
             }
             
             if (isset($data['remote_address'])) {
                 $query->equal('remote-address', $data['remote_address']);
+                Log::info('Updating remote-address: ' . $data['remote_address']);
             }
             
             if (isset($data['comment'])) {
                 $query->equal('comment', $data['comment']);
+                Log::info('Updating comment: ' . $data['comment']);
             }
 
             if (isset($data['disabled'])) {
                 $query->equal('disabled', $data['disabled'] ? 'yes' : 'no');
+                Log::info('Updating disabled: ' . ($data['disabled'] ? 'yes' : 'no'));
             }
 
+            Log::info('Executing update query for PPP secret');
             $response = $this->client->query($query)->read();
+            
+            Log::info('Update PPP secret response', ['response' => $response]);
             
             return [
                 'success' => true,
+                'message' => 'PPP secret updated successfully',
                 'data' => $response
             ];
         } catch (Exception $e) {
-            Log::error('Failed to update PPP secret: ' . $e->getMessage());
+            Log::error('Failed to update PPP secret: ' . $e->getMessage(), [
+                'mikrotik_id' => $mikrotikId,
+                'data' => $data,
+                'error_trace' => $e->getTraceAsString()
+            ]);
             return [
                 'success' => false,
                 'message' => $e->getMessage(),
@@ -360,6 +484,8 @@ class MikrotikService
                 throw new Exception('Not connected to RouterOS');
             }
 
+            Log::info('Creating PPP profile with data:', $data);
+
             $query = new Query('/ppp/profile/add');
             
             // Add profile data
@@ -371,8 +497,36 @@ class MikrotikService
             
             $response = $this->client->query($query)->read();
             
-            // Get the created profile ID
-            $profileId = $response[0]['after']['ret'] ?? null;
+            Log::info('Create PPP profile response:', $response);
+
+            // Extract the created profile ID - RouterOS API response format  
+            $profileId = null;
+            if (!empty($response) && isset($response[0])) {
+                // Different ways to get the ID depending on RouterOS version
+                if (isset($response[0]['after']['ret'])) {
+                    $profileId = $response[0]['after']['ret'];
+                } elseif (isset($response[0]['!done'])) {
+                    // For newer RouterOS versions, get ID from separate query
+                    $createdProfile = $this->client->query(
+                        (new Query('/ppp/profile/print'))
+                            ->where('name', $data['name'])
+                    )->read();
+                    
+                    if (!empty($createdProfile) && isset($createdProfile[0]['.id'])) {
+                        $profileId = $createdProfile[0]['.id'];
+                    }
+                } else {
+                    // Fallback: query by name to get the ID
+                    $createdProfile = $this->client->query(
+                        (new Query('/ppp/profile/print'))
+                            ->where('name', $data['name'])
+                    )->read();
+                    
+                    if (!empty($createdProfile) && isset($createdProfile[0]['.id'])) {
+                        $profileId = $createdProfile[0]['.id'];
+                    }
+                }
+            }
             
             Log::info('PPP profile created successfully', [
                 'profile_name' => $data['name'],
@@ -385,7 +539,10 @@ class MikrotikService
                 'id' => $profileId
             ];
         } catch (Exception $e) {
-            Log::error('Failed to create PPP profile: ' . $e->getMessage());
+            Log::error('Failed to create PPP profile: ' . $e->getMessage(), [
+                'profile_name' => $data['name'] ?? 'unknown',
+                'error_trace' => $e->getTraceAsString()
+            ]);
             return [
                 'success' => false,
                 'message' => $e->getMessage()

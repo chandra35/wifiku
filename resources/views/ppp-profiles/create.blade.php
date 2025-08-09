@@ -574,6 +574,21 @@
         #deletePoolModal .modal-header {
             background: linear-gradient(135deg, #dc3545 0%, #bd2130 100%);
         }
+        
+        /* Force visibility for IP Pool section - Debug */
+        #ip_pool_section {
+            transition: none !important;
+        }
+        
+        #ip_pool_section.show-pool {
+            display: block !important;
+            visibility: visible !important;
+        }
+        
+        #btn-refresh-pools.show-btn {
+            display: inline-block !important;
+            visibility: visible !important;
+        }
     </style>
 @stop
 
@@ -647,73 +662,32 @@
                 }
             });
 
-            // Initialize form state
-            console.log('Create page loaded - Triggering initial change event');
-            $('#remote_address_type').trigger('change');
+            // Initialize form state for create form (always starts with manual mode)
+            const initialType = $('#remote_address_type').val();
             
-            // Check if we need to load pools on page load
-            const initialRouterId = $('#router_id').val();
-            const initialAddressType = $('#remote_address_type').val();
-            
-            console.log('Page loaded - Router:', initialRouterId, 'Type:', initialAddressType);
-            
-            if (initialRouterId && initialAddressType === 'pool') {
-                console.log('Loading pools on page load');
-                loadIPPools(initialRouterId);
-            }
-
-            // Remote Address Type Change
-            $('#remote_address_type').change(function() {
-                const selectedType = $(this).val();
-                
-                console.log('Address type changed to:', selectedType);
-                
-                if (selectedType === 'pool') {
-                    $('#remote_address_manual').hide();
-                    $('#ip_pool_section').show();
-                    $('#btn-refresh-pools').show();
-                    
-                    const routerId = $('#router_id').val();
-                    if (routerId) {
-                        console.log('Loading pools after type change');
-                        loadIPPools(routerId);
-                    } else {
-                        console.log('No router selected, cannot load pools');
-                    }
-                } else {
-                    $('#remote_address_manual').show();
-                    $('#ip_pool_section').hide();
-                    $('#btn-refresh-pools').hide();
-                }
+            console.log('Create page loaded - Initial state:', {
+                initial_type: initialType
             });
+            
+            // Trigger initial change to setup form UI
+            console.log('Triggering initial change event for type:', initialType);
+            $('#remote_address_type').trigger('change');
 
             // Router Selection Change
             $('#router_id').change(function() {
                 const routerId = $(this).val();
                 const addressType = $('#remote_address_type').val();
                 
-                console.log('Router changed:', routerId, 'Address type:', addressType);
-                
                 if (routerId && addressType === 'pool') {
-                    console.log('Loading IP pools for router:', routerId);
                     loadIPPools(routerId);
-                } else {
-                    // Reset dropdown if no router selected or type not pool
-                    const select = $('#remote_address_pool');
-                    select.empty().append('<option value="">Select IP Pool...</option>').prop('disabled', true);
                 }
             });
 
             // Refresh IP Pools
             $('#btn-refresh-pools').click(function() {
                 const routerId = $('#router_id').val();
-                console.log('Refresh pools clicked, router:', routerId);
-                
                 if (routerId) {
                     loadIPPools(routerId);
-                } else {
-                    console.log('Cannot refresh - no router selected');
-                    alert('Please select a router first');
                 }
             });
 
@@ -798,7 +772,7 @@
             $(document).on('click', '.pool-select-btn', function() {
                 const poolName = $(this).data('pool-name');
                 $('#remote_address_pool').val(poolName);
-                $('#remote_address_manual').val(poolName);
+                $('#remote_address').val(poolName);
                 
                 // Close modal
                 $('#addPoolModal').modal('hide');
@@ -870,7 +844,7 @@
             // Pool selection change
             $('#remote_address_pool').change(function() {
                 const selectedPool = $(this).val();
-                $('#remote_address_manual').val(selectedPool);
+                $('#remote_address').val(selectedPool);
             });
 
             // Quick template buttons
@@ -892,19 +866,125 @@
                         break;
                 }
             });
+
+            // Form submission handler
+            $('form').on('submit', function(e) {
+                e.preventDefault();
+                
+                console.log('Form submission started');
+                
+                const formData = new FormData(this);
+                const remoteAddressType = $('#remote_address_type').val();
+                
+                console.log('Remote address type:', remoteAddressType);
+                console.log('Form action URL:', $(this).attr('action'));
+                
+                // Handle remote address based on type
+                if (remoteAddressType === 'pool') {
+                    const selectedPool = $('#remote_address_pool').val();
+                    console.log('Selected pool:', selectedPool);
+                    if (selectedPool) {
+                        formData.set('remote_address', selectedPool);
+                        console.log('Set remote_address to pool name:', selectedPool);
+                    } else {
+                        alert('Please select an IP Pool');
+                        return false;
+                    }
+                } else {
+                    const manualAddress = $('#remote_address').val();
+                    console.log('Manual address:', manualAddress);
+                    formData.set('remote_address', manualAddress);
+                }
+                
+                // Add remote address type to form data
+                formData.set('remote_address_type', remoteAddressType);
+                
+                // Log all form data
+                console.log('Form data being sent:');
+                for (let pair of formData.entries()) {
+                    console.log(pair[0] + ': ' + pair[1]);
+                }
+                
+                // Show loading state
+                const submitBtn = $('button[type="submit"]');
+                const originalText = submitBtn.html();
+                submitBtn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Creating...');
+                
+                // Submit form
+                $.ajax({
+                    url: $(this).attr('action'),
+                    method: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    beforeSend: function(xhr) {
+                        console.log('AJAX request starting...');
+                    },
+                    success: function(response) {
+                        console.log('Create successful:', response);
+                        if (response.success) {
+                            // Show success message
+                            if (typeof Swal !== 'undefined') {
+                                Swal.fire({
+                                    icon: 'success',
+                                    title: 'Success!',
+                                    text: response.message || 'PPP Profile created successfully and synced to MikroTik',
+                                    timer: 2000,
+                                    showConfirmButton: false
+                                }).then(() => {
+                                    // Redirect back to index
+                                    window.location.href = '{{ route("ppp-profiles.index") }}';
+                                });
+                            } else {
+                                alert('Success: ' + (response.message || 'PPP Profile created successfully'));
+                                window.location.href = '{{ route("ppp-profiles.index") }}';
+                            }
+                        } else {
+                            throw new Error(response.message || 'Create failed');
+                        }
+                    },
+                    error: function(xhr) {
+                        console.error('Create error:', xhr);
+                        console.error('Response text:', xhr.responseText);
+                        console.error('Status:', xhr.status);
+                        console.error('Status text:', xhr.statusText);
+                        
+                        let errorMessage = 'An error occurred while creating the profile.';
+                        
+                        if (xhr.responseJSON) {
+                            if (xhr.responseJSON.message) {
+                                errorMessage = xhr.responseJSON.message;
+                            } else if (xhr.responseJSON.errors) {
+                                const errors = Object.values(xhr.responseJSON.errors).flat();
+                                errorMessage = errors.join('\n');
+                            }
+                        }
+                        
+                        if (typeof Swal !== 'undefined') {
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Error!',
+                                text: errorMessage
+                            });
+                        } else {
+                            alert('Error: ' + errorMessage);
+                        }
+                    },
+                    complete: function() {
+                        console.log('AJAX request completed');
+                        // Restore button state
+                        submitBtn.prop('disabled', false).html(originalText);
+                    }
+                });
+                
+                return false;
+            });
         });
 
         function loadIPPools(routerId) {
-            if (!routerId) {
-                console.log('No router ID provided');
-                return;
-            }
+            if (!routerId) return;
             
-            console.log('Loading IP pools for router:', routerId);
-            const select = $('#remote_address_pool');
-            
-            // Show loading state
-            select.empty().append('<option value="">Loading pools...</option>').prop('disabled', true);
+            console.log('loadIPPools called with routerId:', routerId);
             
             $.ajax({
                 url: `{{ route('ppp-profiles.get-ip-pools') }}`,
@@ -913,11 +993,20 @@
                     _token: '{{ csrf_token() }}',
                     router_id: routerId
                 },
+                beforeSend: function() {
+                    console.log('Loading IP pools from server...');
+                    $('#remote_address_pool').html('<option value="">Loading pools...</option>').prop('disabled', true);
+                },
                 success: function(response) {
                     console.log('IP pools response:', response);
+                    const select = $('#remote_address_pool');
+                    const currentValue = $('#remote_address').val();
+                    
+                    console.log('Current remote_address value:', currentValue);
+                    
                     select.empty().append('<option value="">Select IP Pool...</option>');
                     
-                    if (response.success && response.data && response.data.length > 0) {
+                    if (response.success && response.data.length > 0) {
                         select.prop('disabled', false);
                         response.data.forEach(function(pool) {
                             // Create option text with pool name and ranges
@@ -926,17 +1015,19 @@
                                 optionText += ` (${pool.ranges_string})`;
                             }
                             
-                            select.append(`<option value="${pool.name}">${optionText}</option>`);
+                            const isSelected = pool.name === currentValue ? 'selected' : '';
+                            console.log(`Pool: ${pool.name}, Current: ${currentValue}, Selected: ${isSelected}`);
+                            select.append(`<option value="${pool.name}" ${isSelected}>${optionText}</option>`);
                         });
-                        console.log(`Loaded ${response.data.length} IP pools`);
+                        console.log('IP pools loaded successfully, dropdown enabled');
                     } else {
                         select.prop('disabled', true);
-                        console.log('No IP pools found or response not successful');
+                        console.log('No IP pools found or response failed');
                     }
                 },
-                error: function(xhr, status, error) {
-                    console.error('Error loading IP pools:', xhr.responseJSON || error);
-                    select.empty().append('<option value="">Error loading pools</option>').prop('disabled', true);
+                error: function(xhr) {
+                    console.error('Error loading IP pools:', xhr);
+                    $('#remote_address_pool').html('<option value="">Error loading pools</option>').prop('disabled', true);
                 }
             });
         }
@@ -1001,7 +1092,6 @@
                                     </td>
                                 </tr>
                             `);
-                        });
                         });
                     } else {
                         tbody.append(`

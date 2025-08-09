@@ -194,6 +194,13 @@ class PppProfileController extends Controller
         // Check access permissions
         if (!($user->role && $user->role->name === 'super_admin')) {
             if (!$user->routers->contains($router->id)) {
+                if ($request->ajax() || $request->wantsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized access to this router.',
+                        'errors' => ['router_id' => ['Unauthorized access to this router.']]
+                    ], 403);
+                }
                 return redirect()->back()->withErrors(['router_id' => 'Unauthorized access to this router.']);
             }
         }
@@ -204,10 +211,17 @@ class PppProfileController extends Controller
             ->first();
 
         if ($existingProfile) {
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Profile name already exists for this router.',
+                    'errors' => ['name' => ['Profile name already exists for this router.']]
+                ], 422);
+            }
             return redirect()->back()->withErrors(['name' => 'Profile name already exists for this router.'])->withInput();
         }
 
-        PppProfile::create([
+        $pppProfile = PppProfile::create([
             'name' => $request->name,
             'router_id' => $request->router_id,
             'local_address' => $request->local_address,
@@ -221,8 +235,17 @@ class PppProfileController extends Controller
             'created_by' => $user->id,
         ]);
 
+        // Return JSON response for AJAX
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'PPP Profile created successfully. You can sync it to MikroTik manually when ready.',
+                'data' => $pppProfile
+            ]);
+        }
+
         return redirect()->route('ppp-profiles.index')
-            ->with('success', 'PPP Profile created successfully.');
+            ->with('success', 'PPP Profile created successfully. You can sync it to MikroTik manually when ready.');
     }
 
     /**
@@ -395,7 +418,7 @@ class PppProfileController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(PppProfile $pppProfile)
+    public function destroy(Request $request, PppProfile $pppProfile)
     {
         $user = auth()->user();
         
@@ -406,12 +429,100 @@ class PppProfileController extends Controller
             }
         }
 
-        $pppProfile->delete();
+        $deleteOption = $request->input('delete_option', 'both');
+        $messages = [];
+        $errors = [];
 
-        return response()->json([
-            'success' => true,
-            'message' => 'PPP Profile deleted successfully.'
-        ]);
+        try {
+            // Handle deletion based on selected option
+            switch ($deleteOption) {
+                case 'app_only':
+                    // Delete only from application database
+                    $pppProfile->delete();
+                    $messages[] = 'PPP Profile berhasil dihapus dari aplikasi.';
+                    break;
+
+                case 'mikrotik_only':
+                    // Delete only from MikroTik
+                    if ($pppProfile->mikrotik_id) {
+                        $connected = $this->connectToMikrotik($pppProfile->router);
+                        if ($connected) {
+                            $result = $this->mikrotikService->deletePppProfile($pppProfile->mikrotik_id);
+                            if ($result['success']) {
+                                // Clear MikroTik ID but keep profile in database
+                                $pppProfile->update([
+                                    'mikrotik_id' => null,
+                                    'is_synced' => false
+                                ]);
+                                $messages[] = 'PPP Profile berhasil dihapus dari MikroTik.';
+                            } else {
+                                $errors[] = 'Gagal menghapus profile dari MikroTik: ' . ($result['message'] ?? 'Unknown error');
+                            }
+                        } else {
+                            $errors[] = 'Gagal terhubung ke router MikroTik.';
+                        }
+                    } else {
+                        $errors[] = 'Profile tidak memiliki ID MikroTik untuk dihapus.';
+                    }
+                    break;
+
+                case 'both':
+                default:
+                    // Delete from both application and MikroTik
+                    if ($pppProfile->mikrotik_id) {
+                        $connected = $this->connectToMikrotik($pppProfile->router);
+                        if ($connected) {
+                            $result = $this->mikrotikService->deletePppProfile($pppProfile->mikrotik_id);
+                            if (!$result['success']) {
+                                $errors[] = 'Gagal menghapus profile dari MikroTik: ' . ($result['message'] ?? 'Unknown error');
+                            } else {
+                                $messages[] = 'PPP Profile berhasil dihapus dari MikroTik.';
+                            }
+                        } else {
+                            $errors[] = 'Gagal terhubung ke router MikroTik untuk menghapus profile.';
+                        }
+                    }
+                    
+                    // Delete from database regardless of MikroTik result
+                    $pppProfile->delete();
+                    $messages[] = 'PPP Profile berhasil dihapus dari aplikasi.';
+                    break;
+            }
+
+            // Prepare response
+            if (empty($errors)) {
+                return response()->json([
+                    'success' => true,
+                    'message' => implode(' ', $messages)
+                ]);
+            } else {
+                // Partial success or failure
+                $message = '';
+                if (!empty($messages)) {
+                    $message .= implode(' ', $messages) . ' ';
+                }
+                if (!empty($errors)) {
+                    $message .= 'Namun terjadi error: ' . implode(' ', $errors);
+                }
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => $message
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Error deleting PPP Profile', [
+                'profile_id' => $pppProfile->id,
+                'delete_option' => $deleteOption,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat menghapus PPP Profile: ' . $e->getMessage()
+            ]);
+        }
     }
 
     /**

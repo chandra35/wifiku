@@ -27,25 +27,47 @@ class PppoeController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
         $user = auth()->user();
         
-        if ($user->isSuperAdmin()) {
-            $pppoeSecrets = UserPppoe::with(['user', 'router'])
-                ->latest()
-                ->paginate(15);
+        // Get available routers for the user
+        if ($user->role && $user->role->name === 'super_admin') {
+            $routers = Router::where('status', 'active')->get();
+            $query = UserPppoe::with(['user', 'router']);
         } else {
             // Regular admin can only see their own PPPoE secrets and only from assigned routers
-            $userRouterIds = $user->routers->pluck('id');
-            $pppoeSecrets = UserPppoe::with(['router'])
-                ->where('user_id', $user->id)
-                ->whereIn('router_id', $userRouterIds)
-                ->latest()
-                ->paginate(15);
+            // For now, get all active routers - will need to adjust based on user router relationship
+            $routers = Router::where('status', 'active')->get();
+            $query = UserPppoe::with(['router'])
+                ->where('user_id', $user->id);
         }
         
-        return view('pppoe.index', compact('pppoeSecrets'));
+        // Apply filters
+        if ($request->filled('search')) {
+            $search = $request->get('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('username', 'like', "%{$search}%")
+                  ->orWhere('comment', 'like', "%{$search}%");
+            });
+        }
+        
+        if ($request->filled('router_id')) {
+            $query->where('router_id', $request->get('router_id'));
+        }
+        
+        if ($request->filled('status')) {
+            $status = $request->get('status');
+            if ($status === 'active') {
+                $query->where('disabled', false);
+            } elseif ($status === 'disabled') {
+                $query->where('disabled', true);
+            }
+        }
+        
+        $pppoeSecrets = $query->latest()->paginate(15);
+        
+        return view('pppoe.index', compact('pppoeSecrets', 'routers'));
     }
 
     /**
@@ -71,77 +93,137 @@ class PppoeController extends Controller
     {
         $user = auth()->user();
         
-        $request->validate([
-            'router_id' => 'required|exists:routers,id',
-            'username' => 'required|string|max:255',
-            'password' => 'required|string|min:6',
-            'service' => 'nullable|string|max:255',
-            'profile' => 'nullable|string|max:255',
-            'local_address' => 'nullable|ip',
-            'remote_address' => 'nullable|ip',
-            'comment' => 'nullable|string|max:500',
-            'disabled' => 'nullable|boolean',
-        ]);
+        try {
+            $request->validate([
+                'router_id' => 'required|exists:routers,id',
+                'username' => 'required|string|max:255',
+                'password' => 'required|string|min:6',
+                'service' => 'nullable|string|max:255',
+                'profile' => 'nullable|string|max:255',
+                'local_address' => 'nullable|ip',
+                'remote_address' => 'nullable|ip',
+                'comment' => 'nullable|string|max:500',
+                'disabled' => 'nullable|boolean',
+            ]);
 
-        $router = Router::findOrFail($request->router_id);
-        
-        // Check if user has access to this router (for non-super admin)
-        if (!$user->isSuperAdmin()) {
-            if (!$user->routers->contains($router->id)) {
-                abort(403, 'Anda tidak memiliki akses ke router ini.');
+            $router = Router::findOrFail($request->router_id);
+            
+            // Check if user has access to this router (for non-super admin)
+            if (!$user->isSuperAdmin()) {
+                if (!$user->routers->contains($router->id)) {
+                    if ($request->ajax()) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Anda tidak memiliki akses ke router ini.'
+                        ], 403);
+                    }
+                    abort(403, 'Anda tidak memiliki akses ke router ini.');
+                }
             }
+
+            // Check for duplicate username on the same router
+            $existingSecret = UserPppoe::where('router_id', $router->id)
+                ->where('username', $request->username)
+                ->first();
+            
+            if ($existingSecret) {
+                if ($request->ajax()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Username sudah ada pada router ini.'
+                    ], 422);
+                }
+                return back()->withErrors(['username' => 'Username sudah ada pada router ini.'])->withInput();
+            }
+
+            // Connect to MikroTik and create PPPoE secret
+            $connected = $this->connectToMikrotik($router);
+
+            if (!$connected) {
+                if ($request->ajax()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Gagal terhubung ke router.'
+                    ], 500);
+                }
+                return back()->withErrors(['connection' => 'Gagal terhubung ke router.'])->withInput();
+            }
+
+            $mikrotikData = [
+                'username' => $request->username,
+                'password' => $request->password,
+                'service' => $request->service ?: 'pppoe',
+                'profile' => $request->profile,
+                'local_address' => $request->local_address,
+                'remote_address' => $request->remote_address,
+                'comment' => $request->comment,
+                'disabled' => $request->boolean('disabled'),
+            ];
+
+            $result = $this->mikrotikService->createPppSecret($mikrotikData);
+
+            if (!$result['success']) {
+                if ($request->ajax()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => $result['message']
+                    ], 500);
+                }
+                return back()->withErrors(['mikrotik' => $result['message']])->withInput();
+            }
+
+            // Save to database
+            $pppoeSecret = UserPppoe::create([
+                'user_id' => $user->id,
+                'router_id' => $router->id,
+                'username' => $request->username,
+                'password' => $request->password,
+                'service' => $request->service ?: 'pppoe',
+                'profile' => $request->profile,
+                'local_address' => $request->local_address,
+                'remote_address' => $request->remote_address,
+                'comment' => $request->comment,
+                'disabled' => $request->boolean('disabled'),
+                'mikrotik_id' => $result['id'],
+            ]);
+
+            if ($request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'PPPoE secret berhasil dibuat di MikroTik dan disimpan.',
+                    'data' => $pppoeSecret
+                ]);
+            }
+
+            return redirect()->route('pppoe.index')
+                ->with('success', 'PPPoE secret berhasil dibuat di MikroTik dan disimpan.');
+                
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            if ($request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $e->errors()
+                ], 422);
+            }
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('Error creating PPPoE secret: ' . $e->getMessage(), [
+                'user_id' => $user->id,
+                'router_id' => $request->router_id,
+                'username' => $request->username,
+                'error' => $e->getTraceAsString()
+            ]);
+            
+            if ($request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'An error occurred while creating the PPPoE secret: ' . $e->getMessage()
+                ], 500);
+            }
+            
+            return back()->withErrors(['error' => 'An error occurred while creating the PPPoE secret.'])->withInput();
         }
-
-        // Check for duplicate username on the same router
-        $existingSecret = UserPppoe::where('router_id', $router->id)
-            ->where('username', $request->username)
-            ->first();
-        
-        if ($existingSecret) {
-            return back()->withErrors(['username' => 'Username sudah ada pada router ini.'])->withInput();
-        }
-
-        // Connect to MikroTik and create PPPoE secret
-        $connected = $this->connectToMikrotik($router);
-
-        if (!$connected) {
-            return back()->withErrors(['connection' => 'Gagal terhubung ke router.'])->withInput();
-        }
-
-        $mikrotikData = [
-            'username' => $request->username,
-            'password' => $request->password,
-            'service' => $request->service ?: 'pppoe',
-            'profile' => $request->profile,
-            'local_address' => $request->local_address,
-            'remote_address' => $request->remote_address,
-            'comment' => $request->comment,
-            'disabled' => $request->boolean('disabled'),
-        ];
-
-        $result = $this->mikrotikService->createPppSecret($mikrotikData);
-
-        if (!$result['success']) {
-            return back()->withErrors(['mikrotik' => $result['message']])->withInput();
-        }
-
-        // Save to database
-        UserPppoe::create([
-            'user_id' => $user->id,
-            'router_id' => $router->id,
-            'username' => $request->username,
-            'password' => $request->password,
-            'service' => $request->service ?: 'pppoe',
-            'profile' => $request->profile,
-            'local_address' => $request->local_address,
-            'remote_address' => $request->remote_address,
-            'comment' => $request->comment,
-            'disabled' => $request->boolean('disabled'),
-            'mikrotik_id' => $result['id'],
-        ]);
-
-        return redirect()->route('pppoe.index')
-            ->with('success', 'PPPoE secret berhasil dibuat di MikroTik dan disimpan.');
     }
 
     /**
@@ -177,8 +259,24 @@ class PppoeController extends Controller
         } else {
             $routers = $user->routers()->where('status', 'active')->get();
         }
+
+        // Load available profiles from the current router
+        $profiles = [];
+        try {
+            $router = $pppoe->router;
+            $connected = $this->connectToMikrotik($router);
+            
+            if ($connected) {
+                $result = $this->mikrotikService->getPppProfiles();
+                if ($result['success']) {
+                    $profiles = $result['data'];
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to load profiles for edit form: ' . $e->getMessage());
+        }
         
-        return view('pppoe.edit', compact('pppoe', 'routers'));
+        return view('pppoe.edit', compact('pppoe', 'routers', 'profiles'));
     }
 
     /**
@@ -250,28 +348,109 @@ class PppoeController extends Controller
     /**
      * Remove the specified resource from storage.
      */
-    public function destroy(UserPppoe $pppoe)
+    public function destroy(Request $request, UserPppoe $pppoe)
     {
         $user = auth()->user();
         
-        // Check access permissions
-        if (!$user->isSuperAdmin() && $pppoe->user_id !== $user->id) {
-            abort(403, 'Anda tidak memiliki akses untuk menghapus PPPoE secret ini.');
+        try {
+            // Check access permissions
+            if (!($user->role && $user->role->name === 'super_admin') && $pppoe->user_id !== $user->id) {
+                if ($request->ajax()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Anda tidak memiliki akses untuk menghapus PPPoE secret ini.'
+                    ], 403);
+                }
+                abort(403, 'Anda tidak memiliki akses untuk menghapus PPPoE secret ini.');
+            }
+
+            $deleteOption = $request->input('delete_option', 'both');
+            $router = $pppoe->router;
+            $successMessage = '';
+            $mikrotikDeleted = false;
+            $databaseDeleted = false;
+
+            // Handle MikroTik deletion
+            if (in_array($deleteOption, ['mikrotik_only', 'both'])) {
+                $connected = $this->connectToMikrotik($router);
+
+                if ($connected && $pppoe->mikrotik_id) {
+                    $result = $this->mikrotikService->deletePppSecret($pppoe->mikrotik_id);
+                    if ($result['success']) {
+                        $mikrotikDeleted = true;
+                    } else {
+                        Log::warning('Failed to delete secret from MikroTik', [
+                            'secret_id' => $pppoe->id,
+                            'mikrotik_id' => $pppoe->mikrotik_id,
+                            'error' => $result['message']
+                        ]);
+                    }
+                } else {
+                    Log::warning('Could not connect to MikroTik or secret ID not found', [
+                        'secret_id' => $pppoe->id,
+                        'mikrotik_id' => $pppoe->mikrotik_id,
+                        'connected' => $connected
+                    ]);
+                }
+            }
+
+            // Handle database deletion
+            if (in_array($deleteOption, ['app_only', 'both'])) {
+                $pppoe->delete();
+                $databaseDeleted = true;
+            }
+
+            // Generate appropriate success message
+            switch ($deleteOption) {
+                case 'app_only':
+                    $successMessage = 'PPPoE secret berhasil dihapus dari aplikasi.';
+                    break;
+                case 'mikrotik_only':
+                    if ($mikrotikDeleted) {
+                        $successMessage = 'PPPoE secret berhasil dihapus dari MikroTik.';
+                    } else {
+                        $successMessage = 'Secret tidak ditemukan di MikroTik atau gagal dihapus.';
+                    }
+                    break;
+                case 'both':
+                default:
+                    if ($mikrotikDeleted && $databaseDeleted) {
+                        $successMessage = 'PPPoE secret berhasil dihapus dari aplikasi dan MikroTik.';
+                    } elseif ($databaseDeleted) {
+                        $successMessage = 'PPPoE secret berhasil dihapus dari aplikasi, tetapi gagal dihapus dari MikroTik.';
+                    } elseif ($mikrotikDeleted) {
+                        $successMessage = 'PPPoE secret berhasil dihapus dari MikroTik, tetapi gagal dihapus dari aplikasi.';
+                    } else {
+                        $successMessage = 'Gagal menghapus PPPoE secret dari MikroTik dan aplikasi.';
+                    }
+                    break;
+            }
+
+            if ($request->ajax()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => $successMessage
+                ]);
+            }
+            
+            return redirect()->route('pppoe.index')->with('success', $successMessage);
+            
+        } catch (\Exception $e) {
+            Log::error('Error deleting PPPoE secret: ' . $e->getMessage(), [
+                'user_id' => $user->id,
+                'secret_id' => $pppoe->id,
+                'error' => $e->getTraceAsString()
+            ]);
+            
+            if ($request->ajax()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Terjadi kesalahan saat menghapus secret: ' . $e->getMessage()
+                ], 500);
+            }
+            
+            return redirect()->route('pppoe.index')->with('error', 'Terjadi kesalahan saat menghapus secret.');
         }
-
-        $router = $pppoe->router;
-
-        // Connect to MikroTik and delete PPPoE secret
-        $connected = $this->connectToMikrotik($router);
-
-        if ($connected && $pppoe->mikrotik_id) {
-            $this->mikrotikService->deletePppSecret($pppoe->mikrotik_id);
-        }
-
-        $pppoe->delete();
-        
-        return redirect()->route('pppoe.index')
-            ->with('success', 'PPPoE secret berhasil dihapus.');
     }
 
     /**
@@ -340,9 +519,21 @@ class PppoeController extends Controller
 
         $router = $pppoe->router;
 
+        Log::info('Starting sync to MikroTik for PPPoE secret', [
+            'secret_id' => $pppoe->id,
+            'username' => $pppoe->username,
+            'router_id' => $router->id,
+            'router_ip' => $router->ip_address,
+            'current_mikrotik_id' => $pppoe->mikrotik_id
+        ]);
+
         $connected = $this->connectToMikrotik($router);
 
         if (!$connected) {
+            Log::error('Failed to connect to MikroTik for sync', [
+                'router_id' => $router->id,
+                'router_ip' => $router->ip_address
+            ]);
             return response()->json(['success' => false, 'message' => 'Failed to connect to router.']);
         }
 
@@ -357,18 +548,126 @@ class PppoeController extends Controller
             'disabled' => $pppoe->disabled,
         ];
 
-        if ($pppoe->mikrotik_id) {
-            // Update existing secret
-            $result = $this->mikrotikService->updatePppSecret($pppoe->mikrotik_id, $mikrotikData);
-        } else {
-            // Create new secret
-            $result = $this->mikrotikService->createPppSecret($mikrotikData);
-            if ($result['success'] && isset($result['id'])) {
-                $pppoe->update(['mikrotik_id' => $result['id']]);
-            }
-        }
+        // Check if secret exists in MikroTik first
+        try {
+            $existingSecrets = $this->mikrotikService->getPppSecrets();
+            $foundInMikrotik = false;
+            $mikrotikId = null;
 
-        return response()->json($result);
+            Log::info('Checking if secret exists in MikroTik', [
+                'username' => $pppoe->username,
+                'database_mikrotik_id' => $pppoe->mikrotik_id,
+                'secrets_count' => $existingSecrets['success'] ? count($existingSecrets['data']) : 0
+            ]);
+
+            if ($existingSecrets['success']) {
+                foreach ($existingSecrets['data'] as $secret) {
+                    if (isset($secret['name']) && $secret['name'] === $pppoe->username) {
+                        $foundInMikrotik = true;
+                        $mikrotikId = $secret['.id'];
+                        Log::info('Found existing secret in MikroTik', [
+                            'username' => $pppoe->username,
+                            'mikrotik_id' => $mikrotikId
+                        ]);
+                        break;
+                    }
+                }
+            }
+
+            Log::info('Secret existence check result', [
+                'found_in_mikrotik' => $foundInMikrotik,
+                'mikrotik_id_from_search' => $mikrotikId,
+                'mikrotik_id_in_database' => $pppoe->mikrotik_id
+            ]);
+
+            // If secret not found in MikroTik but database has mikrotik_id, reset it
+            if (!$foundInMikrotik && $pppoe->mikrotik_id) {
+                Log::warning('Secret not found in MikroTik but database has mikrotik_id, resetting', [
+                    'username' => $pppoe->username,
+                    'old_mikrotik_id' => $pppoe->mikrotik_id
+                ]);
+                $pppoe->update(['mikrotik_id' => null]);
+            }
+
+            // Update mikrotik_id in database if found but not stored
+            if ($foundInMikrotik && !$pppoe->mikrotik_id) {
+                $pppoe->update(['mikrotik_id' => $mikrotikId]);
+                Log::info('Updated mikrotik_id in database', [
+                    'secret_id' => $pppoe->id,
+                    'mikrotik_id' => $mikrotikId
+                ]);
+            }
+
+            if ($foundInMikrotik) {
+                // Update existing secret
+                $finalMikrotikId = $mikrotikId;
+                Log::info('Updating existing secret in MikroTik', [
+                    'mikrotik_id' => $finalMikrotikId,
+                    'data' => $mikrotikData
+                ]);
+                $result = $this->mikrotikService->updatePppSecret($finalMikrotikId, $mikrotikData);
+                
+                // If update failed because ID is invalid, fallback to create
+                if (!$result['success'] && strpos($result['message'], 'does not exist') !== false) {
+                    Log::warning('Update failed because secret ID does not exist, falling back to create', [
+                        'failed_mikrotik_id' => $finalMikrotikId,
+                        'username' => $pppoe->username
+                    ]);
+                    
+                    // Reset mikrotik_id in database
+                    $pppoe->update(['mikrotik_id' => null]);
+                    
+                    // Create new secret
+                    $result = $this->mikrotikService->createPppSecret($mikrotikData);
+                    
+                    if ($result['success'] && isset($result['id']) && $result['id']) {
+                        $pppoe->update(['mikrotik_id' => $result['id']]);
+                        Log::info('Fallback create successful, updated mikrotik_id', [
+                            'secret_id' => $pppoe->id,
+                            'new_mikrotik_id' => $result['id']
+                        ]);
+                    }
+                }
+            } else {
+                // Create new secret
+                Log::info('Creating new secret in MikroTik', [
+                    'username' => $pppoe->username,
+                    'data' => $mikrotikData
+                ]);
+                $result = $this->mikrotikService->createPppSecret($mikrotikData);
+                
+                if ($result['success'] && isset($result['id']) && $result['id']) {
+                    $pppoe->update(['mikrotik_id' => $result['id']]);
+                    Log::info('Created new secret and updated mikrotik_id', [
+                        'secret_id' => $pppoe->id,
+                        'new_mikrotik_id' => $result['id']
+                    ]);
+                } else {
+                    Log::warning('Secret creation appeared successful but no ID returned', [
+                        'result' => $result
+                    ]);
+                }
+            }
+
+            Log::info('Sync operation completed', [
+                'success' => $result['success'],
+                'message' => $result['message'] ?? 'No message'
+            ]);
+
+            return response()->json($result);
+
+        } catch (\Exception $e) {
+            Log::error('Error during sync operation: ' . $e->getMessage(), [
+                'secret_id' => $pppoe->id,
+                'username' => $pppoe->username,
+                'error_trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Error during sync: ' . $e->getMessage()
+            ]);
+        }
     }
 
     /**

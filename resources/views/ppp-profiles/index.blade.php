@@ -43,6 +43,23 @@
         font-size: 0.75rem;
     }
     
+    /* Sync button specific styling */
+    .sync-btn {
+        padding: 0.2rem 0.4rem !important;
+        font-size: 0.7rem !important;
+        line-height: 1.2 !important;
+    }
+    
+    .sync-btn .fas {
+        font-size: 0.65rem;
+    }
+    
+    /* Keep sync button compact */
+    .sync-btn.btn-sm {
+        padding: 0.2rem 0.4rem !important;
+        font-size: 0.7rem !important;
+    }
+    
     /* Responsive text */
     @media (max-width: 768px) {
         .table-sm {
@@ -314,7 +331,11 @@
                                           class="delete-profile-form" data-profile-name="{{ $profile->name }}">
                                         @csrf
                                         @method('DELETE')
-                                        <button type="button" class="btn btn-danger btn-sm delete-profile-btn" title="Delete">
+                                        <button type="button" class="btn btn-danger btn-sm delete-profile-btn" 
+                                                title="Delete"
+                                                data-profile-name="{{ $profile->name }}"
+                                                data-profile-id="{{ $profile->id }}"
+                                                onclick="openDeleteModal('{{ $profile->id }}', '{{ addslashes($profile->name) }}', '{{ route('ppp-profiles.destroy', $profile->id) }}')">
                                             <i class="fas fa-trash"></i>
                                         </button>
                                     </form>
@@ -578,16 +599,119 @@
                 $('#syncErrorModal').modal('show');
             });
         });
-    });
-
-    // Handle reload after sync success
-    $('#reloadAfterSync').click(function() {
-        location.reload();
-    });
-
-    // Also reload when success modal is hidden
-    $('#syncSuccessModal').on('hidden.bs.modal', function () {
-        location.reload();
+        
+        // Delete Profile Modal Handler
+        $('#confirm-delete-profile').click(function() {
+            console.log('Confirm delete clicked'); // Debug log
+            
+            const profileId = $('#deleteProfileForm').data('profile-id');
+            const profileName = $('#deleteProfileForm').data('profile-name');
+            const deleteUrl = $('#deleteProfileForm').attr('action');
+            const deleteOption = $('input[name="delete_option"]:checked').val();
+            
+            console.log('Delete data:', { profileId, profileName, deleteUrl, deleteOption }); // Debug log
+            
+            // Validate required data
+            if (!deleteUrl) {
+                console.error('Delete URL not found');
+                Swal.fire('Error', 'URL delete tidak ditemukan. Silakan refresh halaman.', 'error');
+                return;
+            }
+            
+            if (!profileId || !profileName) {
+                console.error('Profile data missing');
+                Swal.fire('Error', 'Data profile tidak lengkap. Silakan refresh halaman.', 'error');
+                return;
+            }
+            
+            if (!deleteOption) {
+                console.error('Delete option not selected');
+                Swal.fire('Warning', 'Silakan pilih opsi penghapusan terlebih dahulu.', 'warning');
+                return;
+            }
+            
+            const btn = $(this);
+            const originalText = btn.html();
+            
+            // Disable button and show loading
+            btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Processing...');
+            
+            // Hide modal
+            $('#deleteProfileModal').modal('hide');
+            
+            // Show loading state
+            let loadingMessage = '';
+            let successMessage = '';
+            
+            switch(deleteOption) {
+                case 'app_only':
+                    loadingMessage = 'Menghapus PPP profile dari aplikasi...';
+                    successMessage = 'PPP Profile berhasil dihapus dari aplikasi. Profile masih ada di MikroTik.';
+                    break;
+                case 'mikrotik_only':
+                    loadingMessage = 'Menghapus PPP profile dari MikroTik...';
+                    successMessage = 'PPP Profile berhasil dihapus dari MikroTik. Profile masih ada di aplikasi untuk sinkronisasi kembali.';
+                    break;
+                case 'both':
+                    loadingMessage = 'Menghapus PPP profile dari aplikasi dan MikroTik...';
+                    successMessage = 'PPP Profile berhasil dihapus dari aplikasi dan MikroTik.';
+                    break;
+            }
+            
+            Swal.fire({
+                title: 'Menghapus PPP Profile...',
+                html: loadingMessage,
+                allowOutsideClick: false,
+                allowEscapeKey: false,
+                showConfirmButton: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+            
+            // Submit via AJAX with delete option
+            $.ajax({
+                url: deleteUrl,
+                type: 'POST',
+                data: {
+                    _token: $('meta[name="csrf-token"]').attr('content'),
+                    _method: 'DELETE',
+                    delete_option: deleteOption
+                },
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function(response) {
+                    Swal.fire({
+                        title: 'Berhasil!',
+                        text: response.message || successMessage,
+                        icon: 'success',
+                        confirmButtonText: 'OK',
+                        confirmButtonColor: '#28a745'
+                    }).then(() => {
+                        // Reload page after success
+                        location.reload();
+                    });
+                },
+                error: function(xhr) {
+                    let errorMessage = 'Gagal menghapus PPP Profile.';
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        errorMessage = xhr.responseJSON.message;
+                    }
+                    
+                    Swal.fire({
+                        title: 'Error!',
+                        text: errorMessage,
+                        icon: 'error',
+                        confirmButtonText: 'OK',
+                        confirmButtonColor: '#dc3545'
+                    }).then(() => {
+                        // Re-enable button
+                        btn.prop('disabled', false).html(originalText);
+                    });
+                }
+            });
+        });
     });
 
     function resetImportModal() {
@@ -830,83 +954,32 @@
         }, duration);
     }
 
-    // SweetAlert2 Delete Profile
-    $('.delete-profile-btn').click(function(e) {
-        e.preventDefault();
-        const form = $(this).closest('.delete-profile-form');
-        const profileName = form.data('profile-name');
+    // Test if jQuery is working
+    console.log('jQuery loaded:', typeof $ !== 'undefined');
+    console.log('Bootstrap modal available:', typeof $.fn.modal !== 'undefined');
+    
+    // Function to open delete modal
+    function openDeleteModal(profileId, profileName, deleteUrl) {
+        console.log('Opening delete modal:', { profileId, profileName, deleteUrl });
         
-        Swal.fire({
-            title: 'Konfirmasi Hapus PPP Profile',
-            html: `Apakah Anda yakin ingin menghapus PPP profile <strong>"${profileName}"</strong>?<br><br>
-                   <small class="text-warning"><i class="fas fa-exclamation-triangle"></i> Profile ini juga akan dihapus dari MikroTik router.</small>`,
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#d33',
-            cancelButtonColor: '#6c757d',
-            confirmButtonText: '<i class="fas fa-trash"></i> Ya, Hapus!',
-            cancelButtonText: '<i class="fas fa-times"></i> Batal',
-            reverseButtons: true,
-            focusCancel: true,
-            allowOutsideClick: false,
-            allowEscapeKey: true,
-            customClass: {
-                popup: 'swal2-popup-delete',
-                title: 'swal2-title-delete',
-                content: 'swal2-content-delete'
-            }
-        }).then((result) => {
-            if (result.isConfirmed) {
-                // Show loading state
-                Swal.fire({
-                    title: 'Menghapus PPP Profile...',
-                    html: 'Sedang menghapus PPP profile dari database dan MikroTik.',
-                    allowOutsideClick: false,
-                    allowEscapeKey: false,
-                    showConfirmButton: false,
-                    didOpen: () => {
-                        Swal.showLoading();
-                    }
-                });
-                
-                // Submit via AJAX instead of form submit
-                $.ajax({
-                    url: form.attr('action'),
-                    type: 'POST',
-                    data: form.serialize(),
-                    headers: {
-                        'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                    },
-                    success: function(response) {
-                        Swal.fire({
-                            title: 'Berhasil!',
-                            text: response.message || 'PPP Profile berhasil dihapus.',
-                            icon: 'success',
-                            confirmButtonText: 'OK',
-                            confirmButtonColor: '#28a745'
-                        }).then(() => {
-                            // Reload page after success
-                            location.reload();
-                        });
-                    },
-                    error: function(xhr) {
-                        let errorMessage = 'Gagal menghapus PPP Profile.';
-                        if (xhr.responseJSON && xhr.responseJSON.message) {
-                            errorMessage = xhr.responseJSON.message;
-                        }
-                        
-                        Swal.fire({
-                            title: 'Error!',
-                            text: errorMessage,
-                            icon: 'error',
-                            confirmButtonText: 'OK',
-                            confirmButtonColor: '#dc3545'
-                        });
-                    }
-                });
-            }
-        });
-    });
+        // Store data
+        $('#deleteProfileForm').data('profile-id', profileId);
+        $('#deleteProfileForm').data('profile-name', profileName);
+        $('#deleteProfileForm').attr('action', deleteUrl);
+        
+        // Update modal content
+        $('#deleteProfileName').text(profileName);
+        
+        // Reset radio buttons
+        $('input[name="delete_option"]').prop('checked', false);
+        $('#delete_both').prop('checked', true);
+        
+        // Show modal
+        $('#deleteProfileModal').modal('show');
+    }
+    
+    // Make function global
+    window.openDeleteModal = openDeleteModal;
 </script>
 
 <!-- SweetAlert2 CSS -->
@@ -955,6 +1028,70 @@
     background: #dc3545 !important;
 }
 </style>
+
+<!-- Hidden Delete Form -->
+<form id="deleteProfileForm" style="display: none;" method="POST">
+    @csrf
+    @method('DELETE')
+</form>
+
+<!-- Delete Profile Modal -->
+<div class="modal fade" id="deleteProfileModal" tabindex="-1" role="dialog" aria-labelledby="deleteProfileModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deleteProfileModalLabel">
+                    <i class="fas fa-trash-alt"></i> Konfirmasi Hapus PPP Profile
+                </h5>
+                <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-3">
+                    <i class="fas fa-exclamation-triangle text-warning" style="font-size: 3rem;"></i>
+                </div>
+                <h5 class="text-center mb-3">Anda yakin ingin menghapus profile ini?</h5>
+                <div class="alert alert-info">
+                    <strong>Profile:</strong> <span id="deleteProfileName"></span>
+                </div>
+                
+                <div class="mt-4">
+                    <p class="font-weight-bold">Pilih aksi yang ingin dilakukan:</p>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="radio" name="delete_option" id="delete_app_only" value="app_only">
+                        <label class="form-check-label" for="delete_app_only">
+                            <strong>Hapus dari Aplikasi Saja</strong><br>
+                            <small class="text-muted">Profile akan dihapus dari database, tetapi tetap ada di MikroTik</small>
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="radio" name="delete_option" id="delete_mikrotik_only" value="mikrotik_only">
+                        <label class="form-check-label" for="delete_mikrotik_only">
+                            <strong>Hapus dari MikroTik Saja</strong><br>
+                            <small class="text-muted">Profile akan dihapus dari router, tetapi tetap ada di aplikasi</small>
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="radio" name="delete_option" id="delete_both" value="both" checked>
+                        <label class="form-check-label" for="delete_both">
+                            <strong>Hapus dari Aplikasi dan MikroTik</strong><br>
+                            <small class="text-muted">Profile akan dihapus sepenuhnya dari kedua tempat</small>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">
+                    <i class="fas fa-times"></i> Ora Sido
+                </button>
+                <button type="button" class="btn btn-danger" id="confirm-delete-profile">
+                    <i class="fas fa-trash-alt"></i> Hapus Profile
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Sync Success Modal -->
 <div class="modal fade" id="syncSuccessModal" tabindex="-1" role="dialog" aria-labelledby="syncSuccessModalLabel" aria-hidden="true">
