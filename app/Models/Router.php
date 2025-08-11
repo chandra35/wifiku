@@ -52,6 +52,11 @@ class Router extends Model
         return $this->belongsToMany(User::class, 'user_routers');
     }
 
+    public function pppProfiles(): HasMany
+    {
+        return $this->hasMany(PppProfile::class);
+    }
+
     public function pppoeSecrets(): HasMany
     {
         return $this->hasMany(UserPppoe::class);

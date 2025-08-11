@@ -356,18 +356,20 @@ return [
         
         // Both Super Admin and Admin menu items
         [
-            'text' => 'PPPoE Management',
-            'icon' => 'fas fa-fw fa-wifi',
+            'text' => 'Management Pelanggan',
+            'icon' => 'fas fa-fw fa-users-cog',
             'submenu' => [
                 [
-                    'text' => 'PPPoE Secrets',
-                    'route' => 'pppoe.index',
-                    'icon' => 'fas fa-fw fa-user-secret',
+                    'text' => 'Pelanggan',
+                    'route' => 'customers.index',
+                    'icon' => 'fas fa-fw fa-users',
+                    'active' => ['customers*'],
                 ],
                 [
-                    'text' => 'PPP Profiles',
-                    'route' => 'ppp-profiles.index',
-                    'icon' => 'fas fa-fw fa-cogs',
+                    'text' => 'Paket Internet',
+                    'route' => 'packages.index',
+                    'icon' => 'fas fa-fw fa-box',
+                    'active' => ['packages*'],
                 ],
             ],
         ],
@@ -377,6 +379,18 @@ return [
             'text' => 'Pengaturan',
             'icon' => 'fas fa-fw fa-cogs',
             'submenu' => [
+                [
+                    'text' => 'PPPoE Secrets',
+                    'route' => 'pppoe.index',
+                    'icon' => 'fas fa-fw fa-user-secret',
+                    'active' => ['pppoe*'],
+                ],
+                [
+                    'text' => 'PPP Profiles',
+                    'route' => 'ppp-profiles.index',
+                    'icon' => 'fas fa-fw fa-cogs',
+                    'active' => ['ppp-profiles*'],
+                ],
                 [
                     'text' => 'Profile',
                     'route' => 'profile.edit',

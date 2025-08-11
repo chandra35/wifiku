@@ -36,9 +36,8 @@ class PppProfileController extends Controller
         
         // Apply access control first
         if (!$isSuperAdmin) {
-            $query->whereHas('router', function($q) use ($user) {
-                $q->whereIn('id', $user->routers->pluck('id'));
-            });
+            // Non-super_admin can only see profiles they created themselves
+            $query->where('created_by', $user->id);
         }
         
         // Apply search filter
@@ -232,6 +231,7 @@ class PppProfileController extends Controller
             'idle_timeout' => $request->idle_timeout,
             'only_one' => $request->boolean('only_one'),
             'comment' => $request->comment,
+            'is_synced' => false,
             'created_by' => $user->id,
         ]);
 
@@ -257,8 +257,9 @@ class PppProfileController extends Controller
         
         // Check access permissions
         if (!($user->role && $user->role->name === 'super_admin')) {
-            if (!$user->routers->contains($pppProfile->router_id)) {
-                abort(403, 'Unauthorized access.');
+            // Non-super_admin can only view profiles they created
+            if ($pppProfile->created_by !== $user->id) {
+                abort(403, 'You can only view PPP Profiles you created.');
             }
         }
 
@@ -274,8 +275,9 @@ class PppProfileController extends Controller
         
         // Check access permissions
         if (!($user->role && $user->role->name === 'super_admin')) {
-            if (!$user->routers->contains($pppProfile->router_id)) {
-                abort(403, 'Unauthorized access.');
+            // Non-super_admin can only edit profiles they created
+            if ($pppProfile->created_by !== $user->id) {
+                abort(403, 'You can only edit PPP Profiles you created.');
             }
         }
 
@@ -304,8 +306,9 @@ class PppProfileController extends Controller
         
         // Check access permissions
         if (!($user->role && $user->role->name === 'super_admin')) {
-            if (!$user->routers->contains($pppProfile->router_id)) {
-                abort(403, 'Unauthorized access.');
+            // Non-super_admin can only update profiles they created
+            if ($pppProfile->created_by !== $user->id) {
+                abort(403, 'You can only update PPP Profiles you created.');
             }
         }
 
@@ -424,8 +427,9 @@ class PppProfileController extends Controller
         
         // Check access permissions
         if (!($user->role && $user->role->name === 'super_admin')) {
-            if (!$user->routers->contains($pppProfile->router_id)) {
-                return response()->json(['success' => false, 'message' => 'Unauthorized access.'], 403);
+            // Non-super_admin can only delete profiles they created
+            if ($pppProfile->created_by !== $user->id) {
+                return response()->json(['success' => false, 'message' => 'You can only delete PPP Profiles you created.'], 403);
             }
         }
 

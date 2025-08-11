@@ -12,8 +12,51 @@ use App\Http\Controllers\PppProfileController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AreaController;
 use App\Http\Controllers\CoveredAreaController;
+use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\PackageController;
 
 // Debug route tanpa middleware authentication (di luar semua middleware)
+Route::get('/test-routers', function() {
+    $routers = App\Models\Router::all();
+    $pppProfilesCount = App\Models\PppProfile::count();
+    
+    return response()->json([
+        'routers_count' => $routers->count(),
+        'ppp_profiles_count' => $pppProfilesCount,
+        'routers' => $routers->map(function($r) {
+            return [
+                'id' => $r->id,
+                'name' => $r->name,
+                'ip_address' => $r->ip_address,
+                'ppp_profiles_count' => App\Models\PppProfile::where('router_id', $r->id)->count()
+            ];
+        })
+    ]);
+});
+
+Route::get('/test-ppp-profiles/{routerId}', function($routerId) {
+    try {
+        $pppProfiles = App\Models\PppProfile::where('router_id', $routerId)
+                                ->orderBy('name')
+                                ->get()
+                                ->map(function($profile) {
+                                    return [
+                                        'id' => $profile->id,
+                                        'name' => $profile->name,
+                                        'display_name' => $profile->name . ' - ' . ($profile->rate_limit ?: 'No Rate Limit'),
+                                        'rate_limit' => $profile->rate_limit ?: '',
+                                        'burst_limit' => $profile->burst_limit ?: '',
+                                        'burst_threshold' => $profile->burst_threshold ?: '',
+                                        'burst_time' => $profile->burst_time ?: '',
+                                    ];
+                                });
+        
+        return response()->json($pppProfiles);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
+
 Route::get('/test-monitor/{router}', function(App\Models\Router $router) {
     try {
         $controller = new App\Http\Controllers\RouterController(new App\Services\MikrotikService(), new App\Services\BgpToolsService());
@@ -402,6 +445,30 @@ Route::middleware(['auth', 'role:super_admin,admin'])->group(function () {
         ->name('ppp-profiles.create-ip-pool');
     Route::post('/ppp-profiles/delete-ip-pool', [PppProfileController::class, 'deleteIpPool'])
         ->name('ppp-profiles.delete-ip-pool');
+    
+    // Management Pelanggan - Customer Management
+    Route::resource('customers', CustomerController::class);
+    Route::post('/customers/{customer}/toggle-status', [CustomerController::class, 'toggleStatus'])
+        ->name('customers.toggle-status');
+    Route::post('/customers/{customer}/generate-pppoe', [CustomerController::class, 'generatePppoeSecret'])
+        ->name('customers.generate-pppoe');
+    
+    // Location AJAX routes for address dropdowns
+    Route::get('/location/cities/{provinceCode}', [CustomerController::class, 'getCities'])
+        ->name('location.cities');
+    Route::get('/location/districts/{cityCode}', [CustomerController::class, 'getDistricts'])
+        ->name('location.districts');
+    Route::get('/location/villages/{districtCode}', [CustomerController::class, 'getVillages'])
+        ->name('location.villages');
+    
+    // Management Pelanggan - Package Management  
+    Route::get('/packages/get-ppp-profiles', [PackageController::class, 'getPppProfiles'])
+        ->name('packages.get-ppp-profiles');
+    Route::resource('packages', PackageController::class);
+    Route::post('/packages/{package}/toggle-status', [PackageController::class, 'toggleStatus'])
+        ->name('packages.toggle-status');
+    Route::post('/packages/{package}/sync-to-mikrotik', [PackageController::class, 'syncToMikrotik'])
+        ->name('packages.sync-to-mikrotik');
     
     // Covered Areas Management - untuk Admin/POP mengelola area coverage
     Route::resource('covered-areas', CoveredAreaController::class);

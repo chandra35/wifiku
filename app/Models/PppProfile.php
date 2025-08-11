@@ -26,11 +26,13 @@ class PppProfile extends Model
         'only_one',
         'comment',
         'mikrotik_id',
+        'is_synced',
         'created_by',
     ];
 
     protected $casts = [
         'only_one' => 'boolean',
+        'is_synced' => 'boolean',
         'session_timeout' => 'integer',
         'idle_timeout' => 'integer',
     ];
