@@ -1,3 +1,4 @@
+
 <?php
 
 use Illuminate\Support\Facades\Route;
@@ -12,8 +13,15 @@ use App\Http\Controllers\PppProfileController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AreaController;
 use App\Http\Controllers\CoveredAreaController;
+
+// Pengaturan Aplikasi
+Route::middleware(['auth'])->group(function () {
+    Route::get('/settings', [\App\Http\Controllers\SettingController::class, 'index'])->name('settings.index');
+    Route::post('/settings', [\App\Http\Controllers\SettingController::class, 'update'])->name('settings.update');
+});
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\PackageController;
+use App\Http\Controllers\PaymentController;
 
 // Debug route tanpa middleware authentication (di luar semua middleware)
 Route::get('/test-routers', function() {
@@ -460,6 +468,15 @@ Route::middleware(['auth', 'role:super_admin,admin'])->group(function () {
         ->name('location.districts');
     Route::get('/location/villages/{districtCode}', [CustomerController::class, 'getVillages'])
         ->name('location.villages');
+    
+    // Payment Management - Tagihan Belum Bayar
+    Route::resource('payments', PaymentController::class)->only(['index', 'show']);
+    Route::post('/payments/{payment}/mark-as-paid', [PaymentController::class, 'markAsPaid'])
+        ->name('payments.mark-as-paid');
+    Route::post('/payments/auto-suspend-overdue', [PaymentController::class, 'autoSuspendOverdueCustomers'])
+        ->name('payments.auto-suspend-overdue');
+    Route::post('/payments/bulk-pay', [PaymentController::class, 'bulkPay'])->name('payments.bulkPay');
+    Route::get('/payments/invoice', [PaymentController::class, 'invoice'])->name('payments.invoice');
     
     // Management Pelanggan - Package Management  
     Route::get('/packages/get-ppp-profiles', [PackageController::class, 'getPppProfiles'])

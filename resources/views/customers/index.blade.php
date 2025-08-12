@@ -10,6 +10,7 @@
 @stop
 
 @section('content')
+@include('customers._cards')
 <div class="row">
     <div class="col-md-12">
         <div class="card">

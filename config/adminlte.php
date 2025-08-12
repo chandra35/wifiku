@@ -371,6 +371,12 @@ return [
                     'icon' => 'fas fa-fw fa-box',
                     'active' => ['packages*'],
                 ],
+                [
+                    'text' => 'Tagihan Belum Bayar',
+                    'route' => 'payments.index',
+                    'icon' => 'fas fa-fw fa-file-invoice-dollar',
+                    'active' => ['payments*'],
+                ],
             ],
         ],
         
@@ -379,6 +385,12 @@ return [
             'text' => 'Pengaturan',
             'icon' => 'fas fa-fw fa-cogs',
             'submenu' => [
+                [
+                    'text' => 'Pengaturan Aplikasi',
+                    'route' => 'settings.index',
+                    'icon' => 'fas fa-fw fa-sliders-h',
+                    'active' => ['settings*'],
+                ],
                 [
                     'text' => 'PPPoE Secrets',
                     'route' => 'pppoe.index',

@@ -196,13 +196,16 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="installation_date">Tanggal Pasang</label>
+                                <label for="installation_date">Tanggal Pasang <small class="text-muted">(format: dd/mm/yyyy)</small></label>
                                 <input type="date" class="form-control @error('installation_date') is-invalid @enderror" 
                                        id="installation_date" name="installation_date" 
                                        value="{{ old('installation_date', $customer->installation_date ? (is_string($customer->installation_date) ? $customer->installation_date : $customer->installation_date->format('Y-m-d')) : '') }}">
                                 @error('installation_date')
                                     <div class="invalid-feedback">{{ $message }}</div>
                                 @enderror
+                                <small class="form-text text-muted">
+                                    <i class="fas fa-info-circle"></i> Gunakan format Indonesia: dd/mm/yyyy
+                                </small>
                             </div>
                         </div>
 
@@ -226,13 +229,16 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="next_billing_date">Tagihan Berikutnya</label>
+                                <label for="next_billing_date">Tagihan Berikutnya <small class="text-muted">(format: dd/mm/yyyy)</small></label>
                                 <input type="date" class="form-control @error('next_billing_date') is-invalid @enderror" 
                                        id="next_billing_date" name="next_billing_date" 
                                        value="{{ old('next_billing_date', $customer->next_billing_date ? (is_string($customer->next_billing_date) ? $customer->next_billing_date : $customer->next_billing_date->format('Y-m-d')) : '') }}">
                                 @error('next_billing_date')
                                     <div class="invalid-feedback">{{ $message }}</div>
                                 @enderror
+                                <small class="form-text text-muted">
+                                    <i class="fas fa-info-circle"></i> Gunakan format Indonesia: dd/mm/yyyy
+                                </small>
                             </div>
 
                             <div class="form-group">

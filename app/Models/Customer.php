@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Ramsey\Uuid\Uuid;
 
 class Customer extends Model
@@ -126,6 +127,62 @@ class Customer extends Model
     public function village(): BelongsTo
     {
         return $this->belongsTo(\Laravolt\Indonesia\Models\Village::class, 'village_id', 'code');
+    }
+
+    /**
+     * Payment relationship
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
+
+    /**
+     * Get current pending payment
+     */
+    public function getCurrentPendingPayment()
+    {
+        return $this->payments()
+                   ->where('status', 'pending')
+                   ->orderBy('due_date', 'asc')
+                   ->first();
+    }
+
+    /**
+     * Get overdue payments
+     */
+    public function getOverduePayments()
+    {
+        return $this->payments()
+                   ->whereIn('status', ['pending', 'overdue'])
+                   ->where('due_date', '<', now()->toDateString())
+                   ->orderBy('due_date', 'asc')
+                   ->get();
+    }
+
+    /**
+     * Check if customer has overdue payments
+     */
+    public function hasOverduePayments(): bool
+    {
+        return $this->getOverduePayments()->count() > 0;
+    }
+
+    /**
+     * Get payment status for billing
+     */
+    public function getPaymentStatus(): string
+    {
+        if ($this->hasOverduePayments()) {
+            return 'overdue';
+        }
+        
+        $pendingPayment = $this->getCurrentPendingPayment();
+        if ($pendingPayment) {
+            return 'pending';
+        }
+        
+        return 'up_to_date';
     }
 
     /**

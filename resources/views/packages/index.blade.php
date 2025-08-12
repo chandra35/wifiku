@@ -73,7 +73,7 @@
                                     <td>
                                         <div>
                                             <strong>{{ $package->createdBy->name ?? 'System' }}</strong>
-                                            <br><small class="text-muted">{{ $package->created_at->format('d M Y H:i') }}</small>
+                                            <br><small class="text-muted">{{ $package->created_at->format('d/m/Y H:i') }}</small>
                                         </div>
                                     </td>
                                     <td>

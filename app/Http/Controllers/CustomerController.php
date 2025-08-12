@@ -105,10 +105,13 @@ class CustomerController extends Controller
             $validated['next_billing_date'] = now()->addMonth()->toDateString();
         }
 
-        Customer::create($validated);
+        $customer = Customer::create($validated);
+
+        // Create initial payment for pra-bayar system
+        \App\Http\Controllers\PaymentController::createInitialPayment($customer);
 
         return redirect()->route('customers.index')
-            ->with('success', 'Pelanggan berhasil didaftarkan.');
+            ->with('success', 'Pelanggan berhasil didaftarkan. Tagihan pertama telah dibuat.');
     }
 
     /**
