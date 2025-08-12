@@ -68,23 +68,15 @@ class Customer extends Model
      */
     public static function generateCustomerId(): string
     {
-        $prefix = 'CUS';
-        $year = date('Y');
-        $month = date('m');
-        
-        // Get last customer for this month
-        $lastCustomer = static::where('customer_id', 'like', "{$prefix}{$year}{$month}%")
-            ->orderBy('customer_id', 'desc')
-            ->first();
-        
-        if ($lastCustomer) {
-            $lastNumber = (int) substr($lastCustomer->customer_id, -4);
-            $newNumber = $lastNumber + 1;
-        } else {
-            $newNumber = 1;
-        }
-        
-        return $prefix . $year . $month . str_pad($newNumber, 4, '0', STR_PAD_LEFT);
+        // Ambil prefix dari AppSetting, jika kosong maka ''
+        $prefix = \App\Models\AppSetting::getValue('customer_prefix', '');
+        $prefix = trim($prefix);
+        // 6 digit random (unique)
+        do {
+            $random = str_pad(strval(random_int(0, 999999)), 6, '0', STR_PAD_LEFT);
+            $customerId = $prefix ? ($prefix . $random) : $random;
+        } while (static::where('customer_id', $customerId)->exists());
+        return $customerId;
     }
 
     // Relationships
